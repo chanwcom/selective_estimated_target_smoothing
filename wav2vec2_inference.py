@@ -261,19 +261,59 @@ def build_processor(vocab_size: Optional[int]) -> AutoProcessor:
     return processor, spm_model_path
 
 
-def build_beam_search_decoder(processor):
-    """Builds a torchaudio CTC beam search decoder for the given tokenizer."""
+def build_beam_search_decoder(processor, beam_size: int = 50):
+    """Builds a torchaudio CTC beam search decoder for the given tokenizer.
+
+    Returns:
+        (beam_decoder, synthetic_sil_token_id). `synthetic_sil_token_id` is
+        None when the real "|" word-boundary token is available (the
+        default wav2vec2 vocab case -- its tokenizer's own `decode()`
+        already knows how to turn "|" into a space, so nothing needs to be
+        stripped). It's the id of our unk-token stand-in otherwise (the
+        SentencePiece vocab case), so the caller knows which id to filter
+        out of the hypothesis before decoding to text.
+    """
     vocab = processor.tokenizer.get_vocab()
     tokens = sorted(vocab, key=lambda token: vocab[token])
+
+    # torchaudio's ctc_decoder requires `sil_token` to be an entry that
+    # literally exists in `tokens` (it does tokens_dict.get_index(sil_token)
+    # internally). The default "|" only exists in the *original* wav2vec2
+    # vocab, where "|" is the literal word-boundary token. The
+    # SentencePiece vocab uses "_" (U+2581) *embedded inside* word-initial
+    # pieces (e.g. "_hello") instead of a standalone delimiter token, so
+    # "|" isn't present there and ctc_decoder(...) raises
+    # `ValueError: Unknown entry in dictionary: '|'`.
+    #
+    # We're decoding lexicon-free (lexicon=None) with the default
+    # sil_score=0, so the exact choice of sil_token has no real effect on
+    # scoring here -- it just needs to be *some* token that's guaranteed
+    # to exist in the vocab. Fall back to unk_token (always present as a
+    # special token) when "|" isn't in the vocab.
+    #
+    # NOTE: the lexicon-free decoder inserts this sil_token at utterance
+    # boundaries. For the real "|" case that's fine and expected (the
+    # tokenizer's decode() converts "|" -> " "). For our unk-token
+    # stand-in, SentencePiece's decode() has no such special-casing and
+    # will render it as the literal unk piece (typically "⁇"), leaking
+    # into the output text -- so the caller must strip
+    # `synthetic_sil_token_id` from the hypothesis before decoding.
+    using_real_sil_token = "|" in vocab
+    sil_token = "|" if using_real_sil_token else processor.tokenizer.unk_token
+    synthetic_sil_token_id = (
+        None if using_real_sil_token
+        else processor.tokenizer.convert_tokens_to_ids(sil_token))
+
     beam_decoder = torchaudio_decoder.ctc_decoder(
         lexicon=None,
         tokens=tokens,
         lm=None,
         nbest=1,
-        beam_size=50,
+        beam_size=beam_size,
         blank_token=processor.tokenizer.pad_token,
+        sil_token=sil_token,
     )
-    return beam_decoder
+    return beam_decoder, synthetic_sil_token_id
 
 
 def decode_batch_pipeline(asr_pipeline, input_values, attention_mask):
@@ -293,7 +333,8 @@ def decode_batch_pipeline(asr_pipeline, input_values, attention_mask):
     return [clean_special_tokens(o["text"]) for o in outputs]
 
 
-def decode_batch_beam_search(model, processor, beam_decoder, input_values,
+def decode_batch_beam_search(model, processor, beam_decoder,
+                             synthetic_sil_token_id, input_values,
                              attention_mask):
     """Decodes a padded batch with the torchaudio CTC beam search decoder."""
     with torch.no_grad():
@@ -311,6 +352,11 @@ def decode_batch_beam_search(model, processor, beam_decoder, input_values,
     hyp_list = []
     for utterance_hyps in beam_outputs:
         token_ids = utterance_hyps[0].tokens.tolist()
+        if synthetic_sil_token_id is not None:
+            # Strip the unk-token stand-in the decoder inserted as a
+            # boundary marker (see build_beam_search_decoder) -- otherwise
+            # it leaks into the text as a literal "⁇".
+            token_ids = [t for t in token_ids if t != synthetic_sil_token_id]
         # Reuse the tokenizer's own decode logic (handles both the default
         # wav2vec2 vocab and the SentencePiece vocab correctly, unlike the
         # old "|" -> " " string-replace hack).
@@ -366,6 +412,7 @@ def main():
 
     asr_pipeline = None
     beam_decoder = None
+    synthetic_sil_token_id = None
     if args.decoder == "pipeline":
         asr_pipeline = pipeline(
             "automatic-speech-recognition",
@@ -373,9 +420,14 @@ def main():
             feature_extractor=processor.feature_extractor,
             tokenizer=processor.tokenizer,
             device=(0 if args.device == "cuda" else -1),
+            # Without this, passing a list of waveforms to asr_pipeline(...)
+            # still processes them one at a time internally -- batch_size
+            # here is what actually makes it group --batch_size waveforms
+            # into a single forward pass.
+            batch_size=args.batch_size,
         )
     else:
-        beam_decoder = build_beam_search_decoder(processor)
+        beam_decoder, synthetic_sil_token_id = build_beam_search_decoder(processor)
 
     ref_list: List[str] = []
     hyp_list: List[str] = []
@@ -402,7 +454,8 @@ def main():
                 asr_pipeline, input_values, attention_mask)
         else:
             batch_hyp = decode_batch_beam_search(
-                model, processor, beam_decoder, input_values, attention_mask)
+                model, processor, beam_decoder, synthetic_sil_token_id,
+                input_values, attention_mask)
 
         for ref, hyp in zip(batch_ref, batch_hyp):
             print(f"REF: {ref}")
