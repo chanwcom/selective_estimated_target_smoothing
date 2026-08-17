@@ -8,4 +8,4 @@ python wav2vec2_finetuning_sets.py \
     --beta=0.0   \
     --vocab_size 32 \
     --finetune_profile=$PROFILE  \
-    --per_device_train_batch_size 20
+    --per_device_train_batch_size 24
