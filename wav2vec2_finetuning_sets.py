@@ -120,7 +120,8 @@ _DEFAULT_CHECKPOINT_TOP_DIR = "/mnt/data/home/chanwcom/models"
 # lives at <repo_root>/scripts/asr/wav2vec2/, and the SPM resources are
 # checked into <repo_root>/resources/spm/.
 _REPO_ROOT = os.path.abspath(
-    os.path.join(os.path.dirname(__file__), "..", "..", ".."))
+    "/mnt/data/home/chanwcom/local_repository/cognitive_workflow_kit_emnlp_2026")
+#    os.path.join(os.path.dirname(__file__), "..", "..", ".."))
 _DEFAULT_RESOURCE_TOP_DIR = os.path.join(_REPO_ROOT, "resources", "spm")
 
 # GPU hyperparameter presets: hardware/batch-shaped settings only (how big a
@@ -490,6 +491,29 @@ def _fmt_float(x: float) -> str:
     return str(x).replace(".", "p").replace("-", "neg")
 
 
+def _batching_suffix(args: argparse.Namespace) -> str:
+    """Suffix distinguishing batching-strategy runs in the auto-generated
+    run name.
+
+    Without this, e.g. a --dynamic_batching run and a
+    --length_bucket_window_mult comparison run with otherwise identical
+    --alpha/--beta/--vocab_size/--finetune_profile/--max_steps produce the
+    EXACT SAME run name -- meaning the second run silently overwrites the
+    first run's checkpoint directory (this actually happened: a
+    --length_bucket_window_mult 0 comparison run clobbered a same-named
+    fixed-bucketing run's checkpoint-2500). Batching mode isn't a
+    hyperparameter of the model, but it's exactly the kind of "otherwise
+    identical run" axis people compare against each other, so it needs to
+    be part of the name too.
+    """
+    if args.dynamic_batching:
+        suffix = f"_dynbatch{args.max_batch_audio_len}"
+        if args.max_dynamic_batch_size is not None:
+            suffix += f"_cap{args.max_dynamic_batch_size}"
+        return suffix
+    return f"_bucket{args.length_bucket_window_mult}"
+
+
 def _default_run_name(args: argparse.Namespace) -> str:
     """Builds a run name from the *actual* CLI args (used when --run_name
     is not given).
@@ -499,12 +523,17 @@ def _default_run_name(args: argparse.Namespace) -> str:
     runs with different hyperparameters never collide on directory name
     unless they truly are identical runs. --finetune_profile is included
     too, so e.g. 10hr and 100hr runs with the same alpha/beta don't collide.
+    The batching strategy (--dynamic_batching / --length_bucket_window_mult)
+    is included via `_batching_suffix` for the same reason -- see its
+    docstring for the concrete collision this fixes.
     """
+    suffix = _batching_suffix(args)
     if args.vocab_size is not None:
         return (f"{args.finetune_profile}_shc_{args.max_steps}steps_alpha_"
                 f"{_fmt_float(args.alpha)}_beta_{_fmt_float(args.beta)}"
-                f"_unigram_{args.vocab_size}")
-    return f"{args.finetune_profile}_ctc_{args.max_steps}steps_default_vocab"
+                f"_unigram_{args.vocab_size}{suffix}")
+    return (f"{args.finetune_profile}_ctc_{args.max_steps}steps_default_vocab"
+            f"{suffix}")
 
 
 def parse_args():
@@ -590,6 +619,34 @@ def parse_args():
     parser.add_argument("--bf16", action="store_true", default=True)
     parser.add_argument("--no_bf16", dest="bf16", action="store_false")
     parser.add_argument("--eval_accumulation_steps", type=int, default=1)
+
+    # --- Data loading parallelism --------------------------------------------
+    # With 0 (the default), the WebDataset pipeline -- including the
+    # length-bucketing/dynamic-batching window (see below), which has to
+    # buffer+decode a full window's worth of audio before it can yield
+    # anything -- runs entirely in the main process, serially before each
+    # GPU step (i.e. the GPU sits idle while that happens). Setting this >0
+    # lets PyTorch DataLoader workers decode/bucket/collate upcoming
+    # batches in the background while the GPU is busy with the current one.
+    # `wds.WebDataset` already shards its inputs across workers correctly
+    # by default (`workersplitter=wds.split_by_worker`, verified against
+    # the installed webdataset version) -- no data duplication risk, so
+    # this is safe to raise on a machine with CPU cores to spare.
+    parser.add_argument(
+        "--dataloader_num_workers", type=int, default=0,
+        help="Number of DataLoader worker processes for prefetching. 0 "
+             "(default) = no overlap between data loading and GPU compute; "
+             "the length-bucketing/dynamic-batching window fill (and its "
+             "audio decode cost) happens serially before each step. >0 "
+             "overlaps that with GPU compute in background worker "
+             "processes -- try 4-8 if CPU cores are available "
+             "(`nproc`/`uptime` to check headroom).")
+    parser.add_argument(
+        "--dataloader_persistent_workers", action="store_true", default=False,
+        help="Keep worker processes alive between epochs instead of "
+             "respawning them (saves worker startup cost on each restart "
+             "of the streaming dataset). Only valid with "
+             "--dataloader_num_workers > 0.")
 
     # --- Length-based batch bucketing (training data only) ------------------
     parser.add_argument(
@@ -769,6 +826,10 @@ def main():
         metric_for_best_model="wer",
         greater_is_better=False,
         push_to_hub=False,
+        dataloader_num_workers=args.dataloader_num_workers,
+        dataloader_persistent_workers=(
+            args.dataloader_persistent_workers
+            if args.dataloader_num_workers > 0 else False),
     )
 
     # Initialize trainer and start training.
