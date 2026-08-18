@@ -1,5 +1,5 @@
 CWK_SCRIPT_HOME=/mnt/data/home/chanwcom/local_repository/cognitive_workflow_kit_emnlp_2026/scripts
-DEVIDE_ID=0
+DEVICE_ID=0
 
 source $CWK_SCRIPT_HOME/setup_path.sh
 
