@@ -1,0 +1,13 @@
+# Python bytecode
+__pycache__/
+*.py[cod]
+
+# Raw per-run training / inference logs. ~156M across ~296 files as of this
+# commit, and they grow with every sweep. The distilled results are kept:
+# each sweep's summary.json (multi-seed mean/std per grid cell) IS tracked,
+# which is what any analysis actually reads.
+*.log
+
+# Model checkpoints and HuggingFace run outputs.
+checkpoint-*/
+wandb/

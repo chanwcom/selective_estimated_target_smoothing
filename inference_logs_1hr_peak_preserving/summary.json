@@ -1,0 +1,535 @@
+{
+  "raw": {
+    "libri_light_1hr_shc_2000steps_peakpreserving_gamma_0p05_unigram_32_dynbatch6400000_seed0": [
+      {
+        "wer": 0.22601567255021301,
+        "checkpoint_dir": "/mnt/data/home/chanwcom/models/libri_light_1hr_shc_2000steps_peakpreserving_gamma_0p05_unigram_32_dynbatch6400000_seed0/checkpoint-2000",
+        "test_split": "test-clean",
+        "decoder": "beam_search",
+        "beam_size": 20,
+        "num_examples": 2620
+      },
+      {
+        "wer": 0.3301492081080565,
+        "checkpoint_dir": "/mnt/data/home/chanwcom/models/libri_light_1hr_shc_2000steps_peakpreserving_gamma_0p05_unigram_32_dynbatch6400000_seed0/checkpoint-2000",
+        "test_split": "test-other",
+        "decoder": "beam_search",
+        "beam_size": 20,
+        "num_examples": 2939
+      }
+    ],
+    "libri_light_1hr_shc_2000steps_peakpreserving_gamma_0p05_unigram_32_dynbatch6400000_seed1": [
+      {
+        "wer": 0.24629108338405356,
+        "checkpoint_dir": "/mnt/data/home/chanwcom/models/libri_light_1hr_shc_2000steps_peakpreserving_gamma_0p05_unigram_32_dynbatch6400000_seed1/checkpoint-2000",
+        "test_split": "test-clean",
+        "decoder": "beam_search",
+        "beam_size": 20,
+        "num_examples": 2620
+      },
+      {
+        "wer": 0.36637181667080604,
+        "checkpoint_dir": "/mnt/data/home/chanwcom/models/libri_light_1hr_shc_2000steps_peakpreserving_gamma_0p05_unigram_32_dynbatch6400000_seed1/checkpoint-2000",
+        "test_split": "test-other",
+        "decoder": "beam_search",
+        "beam_size": 20,
+        "num_examples": 2939
+      }
+    ],
+    "libri_light_1hr_shc_2000steps_peakpreserving_gamma_0p05_unigram_32_dynbatch6400000_seed2": [
+      {
+        "wer": 0.23194993913572734,
+        "checkpoint_dir": "/mnt/data/home/chanwcom/models/libri_light_1hr_shc_2000steps_peakpreserving_gamma_0p05_unigram_32_dynbatch6400000_seed2/checkpoint-2000",
+        "test_split": "test-clean",
+        "decoder": "beam_search",
+        "beam_size": 20,
+        "num_examples": 2620
+      },
+      {
+        "wer": 0.3396251647784804,
+        "checkpoint_dir": "/mnt/data/home/chanwcom/models/libri_light_1hr_shc_2000steps_peakpreserving_gamma_0p05_unigram_32_dynbatch6400000_seed2/checkpoint-2000",
+        "test_split": "test-other",
+        "decoder": "beam_search",
+        "beam_size": 20,
+        "num_examples": 2939
+      }
+    ],
+    "libri_light_1hr_shc_2000steps_peakpreserving_gamma_0p15_unigram_32_dynbatch6400000_seed0": [
+      {
+        "wer": 0.2191684418746196,
+        "checkpoint_dir": "/mnt/data/home/chanwcom/models/libri_light_1hr_shc_2000steps_peakpreserving_gamma_0p15_unigram_32_dynbatch6400000_seed0/checkpoint-2000",
+        "test_split": "test-clean",
+        "decoder": "beam_search",
+        "beam_size": 20,
+        "num_examples": 2620
+      },
+      {
+        "wer": 0.32474256347553637,
+        "checkpoint_dir": "/mnt/data/home/chanwcom/models/libri_light_1hr_shc_2000steps_peakpreserving_gamma_0p15_unigram_32_dynbatch6400000_seed0/checkpoint-2000",
+        "test_split": "test-other",
+        "decoder": "beam_search",
+        "beam_size": 20,
+        "num_examples": 2939
+      }
+    ],
+    "libri_light_1hr_shc_2000steps_peakpreserving_gamma_0p15_unigram_32_dynbatch6400000_seed1": [
+      {
+        "wer": 0.22626293365794278,
+        "checkpoint_dir": "/mnt/data/home/chanwcom/models/libri_light_1hr_shc_2000steps_peakpreserving_gamma_0p15_unigram_32_dynbatch6400000_seed1/checkpoint-2000",
+        "test_split": "test-clean",
+        "decoder": "beam_search",
+        "beam_size": 20,
+        "num_examples": 2620
+      },
+      {
+        "wer": 0.3383833559406224,
+        "checkpoint_dir": "/mnt/data/home/chanwcom/models/libri_light_1hr_shc_2000steps_peakpreserving_gamma_0p15_unigram_32_dynbatch6400000_seed1/checkpoint-2000",
+        "test_split": "test-other",
+        "decoder": "beam_search",
+        "beam_size": 20,
+        "num_examples": 2939
+      }
+    ],
+    "libri_light_1hr_shc_2000steps_peakpreserving_gamma_0p15_unigram_32_dynbatch6400000_seed2": [
+      {
+        "wer": 0.22727099817407181,
+        "checkpoint_dir": "/mnt/data/home/chanwcom/models/libri_light_1hr_shc_2000steps_peakpreserving_gamma_0p15_unigram_32_dynbatch6400000_seed2/checkpoint-2000",
+        "test_split": "test-clean",
+        "decoder": "beam_search",
+        "beam_size": 20,
+        "num_examples": 2620
+      },
+      {
+        "wer": 0.3358233192594998,
+        "checkpoint_dir": "/mnt/data/home/chanwcom/models/libri_light_1hr_shc_2000steps_peakpreserving_gamma_0p15_unigram_32_dynbatch6400000_seed2/checkpoint-2000",
+        "test_split": "test-other",
+        "decoder": "beam_search",
+        "beam_size": 20,
+        "num_examples": 2939
+      }
+    ],
+    "libri_light_1hr_shc_2000steps_peakpreserving_gamma_0p1_unigram_32_dynbatch6400000_seed0": [
+      {
+        "wer": 0.2327107425441266,
+        "checkpoint_dir": "/mnt/data/home/chanwcom/models/libri_light_1hr_shc_2000steps_peakpreserving_gamma_0p1_unigram_32_dynbatch6400000_seed0/checkpoint-2000",
+        "test_split": "test-clean",
+        "decoder": "beam_search",
+        "beam_size": 20,
+        "num_examples": 2620
+      },
+      {
+        "wer": 0.3412108591406683,
+        "checkpoint_dir": "/mnt/data/home/chanwcom/models/libri_light_1hr_shc_2000steps_peakpreserving_gamma_0p1_unigram_32_dynbatch6400000_seed0/checkpoint-2000",
+        "test_split": "test-other",
+        "decoder": "beam_search",
+        "beam_size": 20,
+        "num_examples": 2939
+      }
+    ],
+    "libri_light_1hr_shc_2000steps_peakpreserving_gamma_0p1_unigram_32_dynbatch6400000_seed1": [
+      {
+        "wer": 0.22057592818015825,
+        "checkpoint_dir": "/mnt/data/home/chanwcom/models/libri_light_1hr_shc_2000steps_peakpreserving_gamma_0p1_unigram_32_dynbatch6400000_seed1/checkpoint-2000",
+        "test_split": "test-clean",
+        "decoder": "beam_search",
+        "beam_size": 20,
+        "num_examples": 2620
+      },
+      {
+        "wer": 0.3230040311025352,
+        "checkpoint_dir": "/mnt/data/home/chanwcom/models/libri_light_1hr_shc_2000steps_peakpreserving_gamma_0p1_unigram_32_dynbatch6400000_seed1/checkpoint-2000",
+        "test_split": "test-other",
+        "decoder": "beam_search",
+        "beam_size": 20,
+        "num_examples": 2939
+      }
+    ],
+    "libri_light_1hr_shc_2000steps_peakpreserving_gamma_0p1_unigram_32_dynbatch6400000_seed2": [
+      {
+        "wer": 0.23058049300060865,
+        "checkpoint_dir": "/mnt/data/home/chanwcom/models/libri_light_1hr_shc_2000steps_peakpreserving_gamma_0p1_unigram_32_dynbatch6400000_seed2/checkpoint-2000",
+        "test_split": "test-clean",
+        "decoder": "beam_search",
+        "beam_size": 20,
+        "num_examples": 2620
+      },
+      {
+        "wer": 0.33689318533519286,
+        "checkpoint_dir": "/mnt/data/home/chanwcom/models/libri_light_1hr_shc_2000steps_peakpreserving_gamma_0p1_unigram_32_dynbatch6400000_seed2/checkpoint-2000",
+        "test_split": "test-other",
+        "decoder": "beam_search",
+        "beam_size": 20,
+        "num_examples": 2939
+      }
+    ],
+    "libri_light_1hr_shc_2000steps_peakpreserving_gamma_0p25_unigram_32_dynbatch6400000_seed0": [
+      {
+        "wer": 0.22053788800973828,
+        "checkpoint_dir": "/mnt/data/home/chanwcom/models/libri_light_1hr_shc_2000steps_peakpreserving_gamma_0p25_unigram_32_dynbatch6400000_seed0/checkpoint-2000",
+        "test_split": "test-clean",
+        "decoder": "beam_search",
+        "beam_size": 20,
+        "num_examples": 2620
+      },
+      {
+        "wer": 0.3281241044647804,
+        "checkpoint_dir": "/mnt/data/home/chanwcom/models/libri_light_1hr_shc_2000steps_peakpreserving_gamma_0p25_unigram_32_dynbatch6400000_seed0/checkpoint-2000",
+        "test_split": "test-other",
+        "decoder": "beam_search",
+        "beam_size": 20,
+        "num_examples": 2939
+      }
+    ],
+    "libri_light_1hr_shc_2000steps_peakpreserving_gamma_0p25_unigram_32_dynbatch6400000_seed1": [
+      {
+        "wer": 0.22441798539257457,
+        "checkpoint_dir": "/mnt/data/home/chanwcom/models/libri_light_1hr_shc_2000steps_peakpreserving_gamma_0p25_unigram_32_dynbatch6400000_seed1/checkpoint-2000",
+        "test_split": "test-clean",
+        "decoder": "beam_search",
+        "beam_size": 20,
+        "num_examples": 2620
+      },
+      {
+        "wer": 0.3269205051296257,
+        "checkpoint_dir": "/mnt/data/home/chanwcom/models/libri_light_1hr_shc_2000steps_peakpreserving_gamma_0p25_unigram_32_dynbatch6400000_seed1/checkpoint-2000",
+        "test_split": "test-other",
+        "decoder": "beam_search",
+        "beam_size": 20,
+        "num_examples": 2939
+      }
+    ],
+    "libri_light_1hr_shc_2000steps_peakpreserving_gamma_0p25_unigram_32_dynbatch6400000_seed2": [
+      {
+        "wer": 0.2204047474132684,
+        "checkpoint_dir": "/mnt/data/home/chanwcom/models/libri_light_1hr_shc_2000steps_peakpreserving_gamma_0p25_unigram_32_dynbatch6400000_seed2/checkpoint-2000",
+        "test_split": "test-clean",
+        "decoder": "beam_search",
+        "beam_size": 20,
+        "num_examples": 2620
+      },
+      {
+        "wer": 0.3226601455782053,
+        "checkpoint_dir": "/mnt/data/home/chanwcom/models/libri_light_1hr_shc_2000steps_peakpreserving_gamma_0p25_unigram_32_dynbatch6400000_seed2/checkpoint-2000",
+        "test_split": "test-other",
+        "decoder": "beam_search",
+        "beam_size": 20,
+        "num_examples": 2939
+      }
+    ],
+    "libri_light_1hr_shc_2000steps_peakpreserving_gamma_0p2_unigram_32_dynbatch6400000_seed0": [
+      {
+        "wer": 0.23316722458916617,
+        "checkpoint_dir": "/mnt/data/home/chanwcom/models/libri_light_1hr_shc_2000steps_peakpreserving_gamma_0p2_unigram_32_dynbatch6400000_seed0/checkpoint-2000",
+        "test_split": "test-clean",
+        "decoder": "beam_search",
+        "beam_size": 20,
+        "num_examples": 2620
+      },
+      {
+        "wer": 0.34373268631908754,
+        "checkpoint_dir": "/mnt/data/home/chanwcom/models/libri_light_1hr_shc_2000steps_peakpreserving_gamma_0p2_unigram_32_dynbatch6400000_seed0/checkpoint-2000",
+        "test_split": "test-other",
+        "decoder": "beam_search",
+        "beam_size": 20,
+        "num_examples": 2939
+      }
+    ],
+    "libri_light_1hr_shc_2000steps_peakpreserving_gamma_0p2_unigram_32_dynbatch6400000_seed1": [
+      {
+        "wer": 0.23463177115033476,
+        "checkpoint_dir": "/mnt/data/home/chanwcom/models/libri_light_1hr_shc_2000steps_peakpreserving_gamma_0p2_unigram_32_dynbatch6400000_seed1/checkpoint-2000",
+        "test_split": "test-clean",
+        "decoder": "beam_search",
+        "beam_size": 20,
+        "num_examples": 2620
+      },
+      {
+        "wer": 0.33440956765947694,
+        "checkpoint_dir": "/mnt/data/home/chanwcom/models/libri_light_1hr_shc_2000steps_peakpreserving_gamma_0p2_unigram_32_dynbatch6400000_seed1/checkpoint-2000",
+        "test_split": "test-other",
+        "decoder": "beam_search",
+        "beam_size": 20,
+        "num_examples": 2939
+      }
+    ],
+    "libri_light_1hr_shc_2000steps_peakpreserving_gamma_0p2_unigram_32_dynbatch6400000_seed2": [
+      {
+        "wer": 0.2292681071211199,
+        "checkpoint_dir": "/mnt/data/home/chanwcom/models/libri_light_1hr_shc_2000steps_peakpreserving_gamma_0p2_unigram_32_dynbatch6400000_seed2/checkpoint-2000",
+        "test_split": "test-clean",
+        "decoder": "beam_search",
+        "beam_size": 20,
+        "num_examples": 2620
+      },
+      {
+        "wer": 0.33773379439466594,
+        "checkpoint_dir": "/mnt/data/home/chanwcom/models/libri_light_1hr_shc_2000steps_peakpreserving_gamma_0p2_unigram_32_dynbatch6400000_seed2/checkpoint-2000",
+        "test_split": "test-other",
+        "decoder": "beam_search",
+        "beam_size": 20,
+        "num_examples": 2939
+      }
+    ],
+    "libri_light_1hr_shc_2000steps_peakpreserving_gamma_0p5_unigram_32_dynbatch6400000_seed0": [
+      {
+        "wer": 0.23672398052343274,
+        "checkpoint_dir": "/mnt/data/home/chanwcom/models/libri_light_1hr_shc_2000steps_peakpreserving_gamma_0p5_unigram_32_dynbatch6400000_seed0/checkpoint-2000",
+        "test_split": "test-clean",
+        "decoder": "beam_search",
+        "beam_size": 20,
+        "num_examples": 2620
+      },
+      {
+        "wer": 0.35343790000573144,
+        "checkpoint_dir": "/mnt/data/home/chanwcom/models/libri_light_1hr_shc_2000steps_peakpreserving_gamma_0p5_unigram_32_dynbatch6400000_seed0/checkpoint-2000",
+        "test_split": "test-other",
+        "decoder": "beam_search",
+        "beam_size": 20,
+        "num_examples": 2939
+      }
+    ],
+    "libri_light_1hr_shc_2000steps_peakpreserving_gamma_0p5_unigram_32_dynbatch6400000_seed1": [
+      {
+        "wer": 0.2390444309190505,
+        "checkpoint_dir": "/mnt/data/home/chanwcom/models/libri_light_1hr_shc_2000steps_peakpreserving_gamma_0p5_unigram_32_dynbatch6400000_seed1/checkpoint-2000",
+        "test_split": "test-clean",
+        "decoder": "beam_search",
+        "beam_size": 20,
+        "num_examples": 2620
+      },
+      {
+        "wer": 0.35223430067057676,
+        "checkpoint_dir": "/mnt/data/home/chanwcom/models/libri_light_1hr_shc_2000steps_peakpreserving_gamma_0p5_unigram_32_dynbatch6400000_seed1/checkpoint-2000",
+        "test_split": "test-other",
+        "decoder": "beam_search",
+        "beam_size": 20,
+        "num_examples": 2939
+      }
+    ],
+    "libri_light_1hr_shc_2000steps_peakpreserving_gamma_0p5_unigram_32_dynbatch6400000_seed2": [
+      {
+        "wer": 0.24655736457699332,
+        "checkpoint_dir": "/mnt/data/home/chanwcom/models/libri_light_1hr_shc_2000steps_peakpreserving_gamma_0p5_unigram_32_dynbatch6400000_seed2/checkpoint-2000",
+        "test_split": "test-clean",
+        "decoder": "beam_search",
+        "beam_size": 20,
+        "num_examples": 2620
+      },
+      {
+        "wer": 0.3569340695030854,
+        "checkpoint_dir": "/mnt/data/home/chanwcom/models/libri_light_1hr_shc_2000steps_peakpreserving_gamma_0p5_unigram_32_dynbatch6400000_seed2/checkpoint-2000",
+        "test_split": "test-other",
+        "decoder": "beam_search",
+        "beam_size": 20,
+        "num_examples": 2939
+      }
+    ],
+    "libri_light_1hr_shc_2000steps_peakpreserving_gamma_0p75_unigram_32_dynbatch6400000_seed0": [
+      {
+        "wer": 0.4044621119902617,
+        "checkpoint_dir": "/mnt/data/home/chanwcom/models/libri_light_1hr_shc_2000steps_peakpreserving_gamma_0p75_unigram_32_dynbatch6400000_seed0/checkpoint-2000",
+        "test_split": "test-clean",
+        "decoder": "beam_search",
+        "beam_size": 20,
+        "num_examples": 2620
+      },
+      {
+        "wer": 0.55503123626846,
+        "checkpoint_dir": "/mnt/data/home/chanwcom/models/libri_light_1hr_shc_2000steps_peakpreserving_gamma_0p75_unigram_32_dynbatch6400000_seed0/checkpoint-2000",
+        "test_split": "test-other",
+        "decoder": "beam_search",
+        "beam_size": 20,
+        "num_examples": 2939
+      }
+    ],
+    "libri_light_1hr_shc_2000steps_peakpreserving_gamma_0p75_unigram_32_dynbatch6400000_seed1": [
+      {
+        "wer": 0.41819461351186854,
+        "checkpoint_dir": "/mnt/data/home/chanwcom/models/libri_light_1hr_shc_2000steps_peakpreserving_gamma_0p75_unigram_32_dynbatch6400000_seed1/checkpoint-2000",
+        "test_split": "test-clean",
+        "decoder": "beam_search",
+        "beam_size": 20,
+        "num_examples": 2620
+      },
+      {
+        "wer": 0.5598456336090786,
+        "checkpoint_dir": "/mnt/data/home/chanwcom/models/libri_light_1hr_shc_2000steps_peakpreserving_gamma_0p75_unigram_32_dynbatch6400000_seed1/checkpoint-2000",
+        "test_split": "test-other",
+        "decoder": "beam_search",
+        "beam_size": 20,
+        "num_examples": 2939
+      }
+    ],
+    "libri_light_1hr_shc_2000steps_peakpreserving_gamma_0p75_unigram_32_dynbatch6400000_seed2": [
+      {
+        "wer": 0.41840383444917834,
+        "checkpoint_dir": "/mnt/data/home/chanwcom/models/libri_light_1hr_shc_2000steps_peakpreserving_gamma_0p75_unigram_32_dynbatch6400000_seed2/checkpoint-2000",
+        "test_split": "test-clean",
+        "decoder": "beam_search",
+        "beam_size": 20,
+        "num_examples": 2620
+      },
+      {
+        "wer": 0.5578205299658024,
+        "checkpoint_dir": "/mnt/data/home/chanwcom/models/libri_light_1hr_shc_2000steps_peakpreserving_gamma_0p75_unigram_32_dynbatch6400000_seed2/checkpoint-2000",
+        "test_split": "test-other",
+        "decoder": "beam_search",
+        "beam_size": 20,
+        "num_examples": 2939
+      }
+    ],
+    "libri_light_1hr_shc_2000steps_peakpreserving_gamma_1p0_unigram_32_dynbatch6400000_seed0": [
+      {
+        "wer": 0.9991631162507608,
+        "checkpoint_dir": "/mnt/data/home/chanwcom/models/libri_light_1hr_shc_2000steps_peakpreserving_gamma_1p0_unigram_32_dynbatch6400000_seed0/checkpoint-2000",
+        "test_split": "test-clean",
+        "decoder": "beam_search",
+        "beam_size": 20,
+        "num_examples": 2620
+      },
+      {
+        "wer": 0.9992167051945819,
+        "checkpoint_dir": "/mnt/data/home/chanwcom/models/libri_light_1hr_shc_2000steps_peakpreserving_gamma_1p0_unigram_32_dynbatch6400000_seed0/checkpoint-2000",
+        "test_split": "test-other",
+        "decoder": "beam_search",
+        "beam_size": 20,
+        "num_examples": 2939
+      }
+    ],
+    "libri_light_1hr_shc_2000steps_peakpreserving_gamma_1p0_unigram_32_dynbatch6400000_seed1": [
+      {
+        "wer": 0.99992391965916,
+        "checkpoint_dir": "/mnt/data/home/chanwcom/models/libri_light_1hr_shc_2000steps_peakpreserving_gamma_1p0_unigram_32_dynbatch6400000_seed1/checkpoint-2000",
+        "test_split": "test-clean",
+        "decoder": "beam_search",
+        "beam_size": 20,
+        "num_examples": 2620
+      },
+      {
+        "wer": 0.9999235809945933,
+        "checkpoint_dir": "/mnt/data/home/chanwcom/models/libri_light_1hr_shc_2000steps_peakpreserving_gamma_1p0_unigram_32_dynbatch6400000_seed1/checkpoint-2000",
+        "test_split": "test-other",
+        "decoder": "beam_search",
+        "beam_size": 20,
+        "num_examples": 2939
+      }
+    ],
+    "libri_light_1hr_shc_2000steps_peakpreserving_gamma_1p0_unigram_32_dynbatch6400000_seed2": [
+      {
+        "wer": 0.9984974132684115,
+        "checkpoint_dir": "/mnt/data/home/chanwcom/models/libri_light_1hr_shc_2000steps_peakpreserving_gamma_1p0_unigram_32_dynbatch6400000_seed2/checkpoint-2000",
+        "test_split": "test-clean",
+        "decoder": "beam_search",
+        "beam_size": 20,
+        "num_examples": 2620
+      },
+      {
+        "wer": 0.9987772959134937,
+        "checkpoint_dir": "/mnt/data/home/chanwcom/models/libri_light_1hr_shc_2000steps_peakpreserving_gamma_1p0_unigram_32_dynbatch6400000_seed2/checkpoint-2000",
+        "test_split": "test-other",
+        "decoder": "beam_search",
+        "beam_size": 20,
+        "num_examples": 2939
+      }
+    ]
+  },
+  "grid": {
+    "gamma=0.05": {
+      "test-clean": [
+        0.22601567255021301,
+        0.24629108338405356,
+        0.23194993913572734
+      ],
+      "test-other": [
+        0.3301492081080565,
+        0.36637181667080604,
+        0.3396251647784804
+      ]
+    },
+    "gamma=0.15": {
+      "test-clean": [
+        0.2191684418746196,
+        0.22626293365794278,
+        0.22727099817407181
+      ],
+      "test-other": [
+        0.32474256347553637,
+        0.3383833559406224,
+        0.3358233192594998
+      ]
+    },
+    "gamma=0.1": {
+      "test-clean": [
+        0.2327107425441266,
+        0.22057592818015825,
+        0.23058049300060865
+      ],
+      "test-other": [
+        0.3412108591406683,
+        0.3230040311025352,
+        0.33689318533519286
+      ]
+    },
+    "gamma=0.25": {
+      "test-clean": [
+        0.22053788800973828,
+        0.22441798539257457,
+        0.2204047474132684
+      ],
+      "test-other": [
+        0.3281241044647804,
+        0.3269205051296257,
+        0.3226601455782053
+      ]
+    },
+    "gamma=0.2": {
+      "test-clean": [
+        0.23316722458916617,
+        0.23463177115033476,
+        0.2292681071211199
+      ],
+      "test-other": [
+        0.34373268631908754,
+        0.33440956765947694,
+        0.33773379439466594
+      ]
+    },
+    "gamma=0.5": {
+      "test-clean": [
+        0.23672398052343274,
+        0.2390444309190505,
+        0.24655736457699332
+      ],
+      "test-other": [
+        0.35343790000573144,
+        0.35223430067057676,
+        0.3569340695030854
+      ]
+    },
+    "gamma=0.75": {
+      "test-clean": [
+        0.4044621119902617,
+        0.41819461351186854,
+        0.41840383444917834
+      ],
+      "test-other": [
+        0.55503123626846,
+        0.5598456336090786,
+        0.5578205299658024
+      ]
+    },
+    "gamma=1.0": {
+      "test-clean": [
+        0.9991631162507608,
+        0.99992391965916,
+        0.9984974132684115
+      ],
+      "test-other": [
+        0.9992167051945819,
+        0.9999235809945933,
+        0.9987772959134937
+      ]
+    }
+  },
+  "ungrouped": []
+}

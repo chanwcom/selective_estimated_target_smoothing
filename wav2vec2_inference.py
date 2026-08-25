@@ -95,10 +95,13 @@ from common import sample_util
 
 # Same directory conventions as the training script.
 db_top_dir = "/mnt/data/database"
-test_top_dir = os.path.join(
-    db_top_dir, "libri_speech_webdataset_new_oct_2025/test-clean")
-spm_top_dir = ("/mnt/data/home/chanwcom/local_repository/"
-              "cognitive_workflow_kit_emnlp_2026/run/resources")
+# Repo-relative (matches wav2vec2_finetuning_sets.py's convention in this
+# same directory): this script's checkout lives outside the CWK repo, so
+# unlike the canonical copy under cognitive_workflow_kit_emnlp_2026/scripts,
+# it can't derive _REPO_ROOT from its own __file__ location.
+_REPO_ROOT = os.path.abspath(
+    "/mnt/data/home/chanwcom/local_repository/cognitive_workflow_kit_emnlp_2026")
+spm_top_dir = os.path.join(_REPO_ROOT, "resources", "spm")
 
 
 # -----------------------------------------------------------------------
@@ -383,6 +386,14 @@ def parse_args():
         help="Decoding strategy: HF pipeline() greedy CTC decoding, or "
              "torchaudio CTC beam search.")
     parser.add_argument(
+        "--beam_size", type=int, default=50,
+        help="Beam size for --decoder=beam_search. Ignored (no effect) "
+             "for --decoder=pipeline, which always decodes greedily.")
+    parser.add_argument(
+        "--test_split", choices=["test-clean", "test-other"],
+        default="test-clean",
+        help="Which LibriSpeech test split to evaluate on.")
+    parser.add_argument(
         "--batch_size", type=int, default=8,
         help="Evaluation batch size.")
     parser.add_argument(
@@ -399,6 +410,9 @@ def main():
     args = parse_args()
 
     processor, spm_model_path = build_processor(args.vocab_size)
+
+    test_top_dir = os.path.join(
+        db_top_dir, "libri_speech_webdataset_new_oct_2025", args.test_split)
 
     # Same dataset construction call as training's test_dataset.
     test_dataset = sample_util.make_dataset(test_top_dir, True, spm_model_path)
@@ -427,7 +441,8 @@ def main():
             batch_size=args.batch_size,
         )
     else:
-        beam_decoder, synthetic_sil_token_id = build_beam_search_decoder(processor)
+        beam_decoder, synthetic_sil_token_id = build_beam_search_decoder(
+            processor, beam_size=args.beam_size)
 
     ref_list: List[str] = []
     hyp_list: List[str] = []
@@ -470,7 +485,21 @@ def main():
     print(f"Elapsed time during the experiment: {time.time() - start_time:.2f} s")
 
     wer_metric = evaluate.load("wer")
-    result = wer_metric.compute(references=ref_list, predictions=hyp_list)
+    wer = wer_metric.compute(references=ref_list, predictions=hyp_list)
+    # Tag the result with what produced it -- checkpoint/split/decoder are
+    # not otherwise recoverable from this dict alone, and an orchestrator
+    # evaluating many checkpoints x both test splits needs to tell the
+    # results apart (this dict is still a valid Python literal, so it
+    # stays parseable with ast.literal_eval the same way training's
+    # eval_wer/train_runtime dicts are).
+    result = {
+        "wer": wer,
+        "checkpoint_dir": args.checkpoint_dir,
+        "test_split": args.test_split,
+        "decoder": args.decoder,
+        "beam_size": args.beam_size if args.decoder == "beam_search" else None,
+        "num_examples": num_examples,
+    }
     print(result)
 
 

@@ -109,9 +109,17 @@ def run_one(script: str, seed: int, log_path: Path,
     "train_summary" only ever gets logged once, at the very end).
     """
     print(f"\n{'='*70}\n>>> {tag}\n{'='*70}")
-    env = None
+    # PYTHONUNBUFFERED=1 is the actual fix here: when the child's stdout is
+    # a pipe (not a real terminal, which is exactly what subprocess.PIPE
+    # gives it), Python switches from line-buffered to fully block-
+    # buffered output, so the periodic eval_wer prints (and everything
+    # else) sit in an internal buffer instead of reaching us in real time
+    # -- this is what makes it *look* like results "don't show up" when
+    # run through this script but appear fine when run directly in a
+    # terminal. Always set, independent of --gpus/CUDA_VISIBLE_DEVICES.
+    env = os.environ.copy()
+    env["PYTHONUNBUFFERED"] = "1"
     if gpu is not None:
-        env = os.environ.copy()
         env["CUDA_VISIBLE_DEVICES"] = str(gpu)
 
     t0 = time.perf_counter()
@@ -128,7 +136,9 @@ def run_one(script: str, seed: int, log_path: Path,
         assert proc.stdout is not None
         for line in proc.stdout:
             sys.stdout.write(f"{tag} {line}")
+            sys.stdout.flush()
             log_file.write(line)
+            log_file.flush()
 
             stripped = line.strip()
             if stripped.startswith("{") and stripped.endswith("}"):

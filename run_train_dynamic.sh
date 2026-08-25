@@ -16,10 +16,10 @@
       --finetune_profile=$PROFILE  \
       --dynamic_batching \
       --max_batch_audio_len 6400000 \
-      --max_sample_audio_len 400000 \
       --dataloader_num_workers 4 \
       --dataloader_persistent_workers \
       --seed $SEED
+      #--max_sample_audio_len 400000 \
       # --per_device_train_batch_size 24 \
       # --length_bucket_window_mult 0
 

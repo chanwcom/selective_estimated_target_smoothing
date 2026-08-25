@@ -159,20 +159,20 @@ _GPU_PROFILES: Dict[str, Dict[str, Any]] = {
 _FINETUNE_PROFILES: Dict[str, Dict[str, Any]] = {
     "libri_light_1hr": dict(
         train_subdir="libri_light/1h",
-        warmup_steps=500,
-        max_steps=2500,
+        warmup_steps=1000,
+        max_steps=2000,
         eval_steps=500,
     ),
     "libri_light_10hr": dict(
         train_subdir="libri_light/10h",
-        warmup_steps=500,
-        max_steps=5000,
+        warmup_steps=1000,
+        max_steps=4000,
         eval_steps=500,
     ),
     "libri_speech_clean_100hr": dict(
         train_subdir="libri_light/train-clean-100",
-        warmup_steps=500,
-        max_steps=10000,
+        warmup_steps=1000,
+        max_steps=8000,
         eval_steps=500,
     ),
     # Full LibriSpeech (train-clean-100 + train-clean-360 + train-other-500,
@@ -405,12 +405,18 @@ class DataCollatorCTCWithPadding:
 class MyCtcTrainer(Trainer):
     """Custom Trainer to override loss computation with custom Shc loss."""
     def __init__(self, vocab_size=None, alpha=0.0, beta=0.0,
-                dynamic_batching=False, *args, **kwargs):
+                peak_preserving=False, gamma=0.0, peak_capping=False,
+                smoothing_space="label", dynamic_batching=False,
+                *args, **kwargs):
         super().__init__(*args, **kwargs)
         # To include the boundary token at the end.
         self.custom_vocab_size = vocab_size
         self.alpha = alpha
         self.beta = beta
+        self.peak_preserving = peak_preserving
+        self.gamma = gamma
+        self.peak_capping = peak_capping
+        self.smoothing_space = smoothing_space
         self.dynamic_batching = dynamic_batching
 
     def get_train_dataloader(self) -> DataLoader:
@@ -478,6 +484,10 @@ class MyCtcTrainer(Trainer):
                 self.custom_vocab_size,
                 self.alpha,
                 self.beta,
+                self.peak_preserving,
+                self.gamma,
+                self.peak_capping,
+                self.smoothing_space,
             ).mean()
 
         if return_outputs:
@@ -525,10 +535,25 @@ def _default_run_name(args: argparse.Namespace) -> str:
     too, so e.g. 10hr and 100hr runs with the same alpha/beta don't collide.
     The batching strategy (--dynamic_batching / --length_bucket_window_mult)
     is included via `_batching_suffix` for the same reason -- see its
-    docstring for the concrete collision this fixes.
+    docstring for the concrete collision this fixes. --seed is included
+    too, for the same reason again: multi-seed comparison runs (e.g. 3
+    repeats to average out run-to-run training noise) are otherwise
+    identical in every other naming input and would overwrite each other.
     """
-    suffix = _batching_suffix(args)
+    suffix = _batching_suffix(args) + f"_seed{args.seed}"
+    # Only tagged when non-default, so every existing run name (all of
+    # which were label-space) keeps resolving to the same directory.
+    if args.smoothing_space != "label":
+        suffix += f"_{args.smoothing_space}space"
     if args.vocab_size is not None:
+        if args.peak_preserving:
+            return (f"{args.finetune_profile}_shc_{args.max_steps}steps_"
+                    f"peakpreserving_gamma_{_fmt_float(args.gamma)}"
+                    f"_unigram_{args.vocab_size}{suffix}")
+        if args.peak_capping:
+            return (f"{args.finetune_profile}_shc_{args.max_steps}steps_"
+                    f"peakcapping_alpha_{_fmt_float(args.alpha)}"
+                    f"_unigram_{args.vocab_size}{suffix}")
         return (f"{args.finetune_profile}_shc_{args.max_steps}steps_alpha_"
                 f"{_fmt_float(args.alpha)}_beta_{_fmt_float(args.beta)}"
                 f"_unigram_{args.vocab_size}{suffix}")
@@ -548,6 +573,38 @@ def parse_args():
                         help="(e.g., NZ smoothing coeff.).")
     parser.add_argument("--beta", type=float, default=0.0,
                         help="(e.g., NZ smoothing coeff.).")
+    parser.add_argument(
+        "--peak_preserving", action="store_true", default=False,
+        help="Use apply_peak_preserving_selective_estimated_target_"
+             "smoothing (driven by --gamma) instead of the alpha/beta-"
+             "driven SETS post-processing. --alpha/--beta are ignored "
+             "when this is set.")
+    parser.add_argument(
+        "--gamma", type=float, default=0.0,
+        help="Fraction of each non-peak class's probability mass "
+             "redistributed uniformly over the other active, non-peak "
+             "classes. Only used when --peak_preserving is set.")
+    parser.add_argument(
+        "--peak_capping", action="store_true", default=False,
+        help="Use apply_peak_capping_selective_estimated_target_"
+             "smoothing (driven by --alpha as the confidence-cap "
+             "parameter, cap = 1 - alpha) instead of the alpha/beta-"
+             "driven SETS post-processing. --beta/--gamma are ignored "
+             "when this is set. Ignored if --peak_preserving is set.")
+    parser.add_argument(
+        "--smoothing_space", type=str, default="label",
+        choices=["label", "class"],
+        help="Which axis the smoothing is applied to. 'label' (default) "
+             "smooths the alignment posterior over blank-augmented label "
+             "POSITIONS before scattering to classes -- the historical "
+             "behavior every SETS/PP-SETS/PC-SETS result so far used. "
+             "'class' scatters first and smooths over actual output "
+             "CLASSES. These are different algorithms, not two spellings "
+             "of one: in 'label' space a uniform mixin lands as roughly "
+             "50%% blank plus an occurrence-weighted prior over only the "
+             "classes present in the transcript, whereas in 'class' space "
+             "it is genuinely uniform over the vocabulary. See the module "
+             "docstring of cwk/loss/pytorch/shc_loss_util.py.")
 
     # --- Run naming / output location -------------------------------------
     parser.add_argument(
@@ -602,6 +659,16 @@ def parse_args():
              "used to be the if-0/if-1 blocks). Any of the flags below, "
              "if passed explicitly, overrides just that value on top of "
              "the chosen profile.")
+    parser.add_argument(
+        "--seed", type=int, default=42,
+        help="Random seed. Controls both TrainingArguments' own RNGs "
+             "(weight init, etc. -- HF's own default is 42) AND the "
+             "training WebDataset stream's length-bucketing/dynamic-"
+             "batching per-window shuffle (see sample_util.make_dataset's "
+             "`seed` / DynamicBatchConfig.seed), so a single --seed value "
+             "gives you a fully independent run for multi-seed comparisons "
+             "(e.g. averaging N runs with different --seed to distinguish "
+             "a real effect from run-to-run training noise).")
     parser.add_argument("--per_device_train_batch_size", type=int, default=None)
     parser.add_argument("--per_device_eval_batch_size", type=int, default=None)
     parser.add_argument("--learning_rate", type=float, default=None)
@@ -778,7 +845,8 @@ def main():
                 collate_fn=data_collator,
                 max_batch_length=args.max_batch_audio_len,
                 max_batch_size=args.max_dynamic_batch_size,
-                window_mult=args.length_bucket_window_mult),
+                window_mult=args.length_bucket_window_mult,
+                seed=args.seed),
             sub_shard_dirs=args.train_shard_subdirs,
             max_sample_length=args.max_sample_audio_len)
     else:
@@ -790,7 +858,8 @@ def main():
             batch_size=args.per_device_train_batch_size,
             length_bucket_window_mult=args.length_bucket_window_mult,
             sub_shard_dirs=args.train_shard_subdirs,
-            max_sample_length=args.max_sample_audio_len)
+            max_sample_length=args.max_sample_audio_len,
+            seed=args.seed)
     test_dataset = sample_util.make_dataset(
         test_top_dir, True, spm_model_path,
         max_sample_length=args.max_sample_audio_len)
@@ -809,6 +878,7 @@ def main():
     output_dir = os.path.join(args.checkpoint_top_dir, args.run_name)
     training_args = TrainingArguments(
         output_dir=output_dir,
+        seed=args.seed,
         per_device_train_batch_size=args.per_device_train_batch_size,
         learning_rate=args.learning_rate,
         gradient_accumulation_steps=args.gradient_accumulation_steps,
@@ -844,6 +914,10 @@ def main():
         vocab_size=args.vocab_size,
         alpha=args.alpha,
         beta=args.beta,
+        peak_preserving=args.peak_preserving,
+        gamma=args.gamma,
+        peak_capping=args.peak_capping,
+        smoothing_space=args.smoothing_space,
         dynamic_batching=args.dynamic_batching
     )
 
