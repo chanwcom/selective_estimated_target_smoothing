@@ -1,0 +1,20 @@
+# --entropy_match_alpha_max values for the queued C-SETS-H sweeps, one per
+# line. Blank lines and #-comments are ignored. queue_entropy_matched.sh
+# reads this at the moment its sweep starts, not when it is launched, so
+# this file can be edited safely while the queue is still waiting.
+#
+# 1.0  = no clamp. The headline configuration: the entropy-matching
+#        equation alone decides how much to smooth, with no tuned
+#        hyperparameter anywhere. This is the claim the paper rests on.
+# 0.05 = safety net. The open risk is that the solved alpha lands near
+#        0.15-0.25 while the tuned optimum is 0.02 (1hr) / 0.01 (10hr),
+#        i.e. an order of magnitude of over-smoothing. If that happens,
+#        1.0 will train badly and this cell is what shows the method is
+#        sound but needs a ceiling.
+#
+# If the observe-only pilot shows the solved alpha is already small, 0.05
+# will not bind and its three runs will duplicate the 1.0 cell -- replace
+# it with something informative instead (a kappa sweep, or a tighter
+# clamp) BEFORE the queue reaches this profile.
+1.0
+0.05
