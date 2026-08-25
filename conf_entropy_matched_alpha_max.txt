@@ -26,9 +26,31 @@
 # take the full-strength intervention. That is precisely the regime where
 # PP-SETS collapsed at gamma >= 0.75, so it is the thing worth measuring.
 #
+# Because the solved alpha late in training is 0.015, ANY ceiling above
+# that is inert once the model is confident. All three values below are
+# therefore identical in the late phase and differ only in how much of
+# the early full-strength intervention they let through. The ceiling
+# releases itself as the model gains confidence, so no separate warmup
+# schedule is needed.
+#
 # 1.0  = no clamp. The headline configuration: the entropy-matching
 #        equation alone decides, with no tuned hyperparameter anywhere.
-# 0.05 = ceiling that binds only while the model is still uncertain, and
-#        releases on its own once the solved alpha drops below it.
+#        Also the risk case -- 44% of examples take alpha=1.0 early, with
+#        intervention L1 reaching ~1.0 (half the probability mass moved),
+#        which is the magnitude at which PP-SETS collapsed.
+# 0.1  = midpoint, added so that if 1.0 collapses and 0.05 does not, the
+#        boundary between them is bracketed rather than merely known to
+#        exist somewhere in between.
+# 0.05 = tight ceiling. Roughly 3x the late-phase solved alpha, so it
+#        still never binds after the early phase.
+#
+# kappa is deliberately NOT swept here and stays at its default of 1.0,
+# i.e. exact entropy matching with no tuned quantity anywhere. The pilot
+# suggests the opposite adjustment would be wanted (the solved 0.015 sits
+# below the 0.02 the grid search found, so the useful direction is
+# kappa > 1, which the current (0, 1] bound disallows) -- but opening
+# that reintroduces a tunable, so it is left for a separate ablation
+# rather than folded into the headline runs.
 1.0
+0.1
 0.05
