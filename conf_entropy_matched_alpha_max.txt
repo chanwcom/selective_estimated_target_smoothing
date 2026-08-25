@@ -3,18 +3,32 @@
 # reads this at the moment its sweep starts, not when it is launched, so
 # this file can be edited safely while the queue is still waiting.
 #
-# 1.0  = no clamp. The headline configuration: the entropy-matching
-#        equation alone decides how much to smooth, with no tuned
-#        hyperparameter anywhere. This is the claim the paper rests on.
-# 0.05 = safety net. The open risk is that the solved alpha lands near
-#        0.15-0.25 while the tuned optimum is 0.02 (1hr) / 0.01 (10hr),
-#        i.e. an order of magnitude of over-smoothing. If that happens,
-#        1.0 will train badly and this cell is what shows the method is
-#        sound but needs a ceiling.
+# MEASURED by pilot_entropy_match_probe.py (1hr data, 2026-08-25):
 #
-# If the observe-only pilot shows the solved alpha is already small, 0.05
-# will not bind and its three runs will duplicate the 1.0 cell -- replace
-# it with something informative instead (a kappa sweep, or a tighter
-# clamp) BEFORE the queue reaches this profile.
+#   late training (checkpoint-2000 of the alpha=0.02 beta=1.0 seed0 run)
+#     alpha        p10=0.0139  p50=0.0150  p90=0.0160   max=0.0163
+#     case_b 0%    case_c 0%   -- every example is a genuine interior solve
+#     H(q~)=0.214  H(p)=0.257  ceiling=log N=1.064  N=2.94
+#     intervention L1 p50=0.018
+#
+#   early training (pretrained encoder, fresh CTC head)
+#     case_b 100%  -- H(p)=3.450 (near log 32) far exceeds ceiling 1.138
+#     56% of examples are degenerate (q~ already exactly uniform on its
+#        active set, so h_hi - h_lo = 0) and are left untouched at alpha=0
+#     44% are genuine case_b and clamp to alpha=1.0, moving from
+#        H(q~)=1.873 to log N=2.682; intervention L1 reaches ~1.0
+#
+# This is why BOTH values below are worth running, and it is not the
+# reason originally guessed. The solved alpha late in training is 0.015,
+# already close to the 0.02 that the grid search found -- so a 0.05
+# ceiling never binds there and the two cells are IDENTICAL in the late
+# phase. They differ only EARLY, where alpha_max=1.0 lets 44% of examples
+# take the full-strength intervention. That is precisely the regime where
+# PP-SETS collapsed at gamma >= 0.75, so it is the thing worth measuring.
+#
+# 1.0  = no clamp. The headline configuration: the entropy-matching
+#        equation alone decides, with no tuned hyperparameter anywhere.
+# 0.05 = ceiling that binds only while the model is still uncertain, and
+#        releases on its own once the solved alpha drops below it.
 1.0
 0.05
