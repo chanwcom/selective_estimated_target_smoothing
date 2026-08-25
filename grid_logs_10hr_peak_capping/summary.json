@@ -1,0 +1,100 @@
+{
+  "profile": "libri_light_10hr",
+  "results": {
+    "profile=libri_light_10hr_alpha=0.02": [
+      {
+        "returncode": 0,
+        "wall_time_s": 7437.531068348093,
+        "eval_metrics": {
+          "eval_loss": 22.815744400024414,
+          "eval_wer": 0.10330809394447335,
+          "eval_runtime": 105.0292,
+          "eval_samples_per_second": 24.86,
+          "eval_steps_per_second": 1.038,
+          "epoch": 85.0
+        },
+        "train_summary": {
+          "train_runtime": 7418.7127,
+          "train_samples_per_second": 25.881,
+          "train_steps_per_second": 0.539,
+          "train_loss": 101.4141275100708,
+          "epoch": 85.0
+        },
+        "cached": false
+      },
+      {
+        "returncode": 0,
+        "wall_time_s": 7430.95908659196,
+        "eval_metrics": {
+          "eval_loss": 23.464502334594727,
+          "eval_wer": 0.1029805598905651,
+          "eval_runtime": 107.6027,
+          "eval_samples_per_second": 24.265,
+          "eval_steps_per_second": 1.013,
+          "epoch": 85.0
+        },
+        "train_summary": {
+          "train_runtime": 7413.0465,
+          "train_samples_per_second": 25.9,
+          "train_steps_per_second": 0.54,
+          "train_loss": 99.94133932876586,
+          "epoch": 85.0
+        },
+        "cached": false
+      },
+      {
+        "returncode": 0,
+        "wall_time_s": 7443.538663476007,
+        "eval_metrics": {
+          "eval_loss": 23.38425636291504,
+          "eval_wer": 0.10402096217945013,
+          "eval_runtime": 98.2025,
+          "eval_samples_per_second": 26.588,
+          "eval_steps_per_second": 1.11,
+          "epoch": 85.0
+        },
+        "train_summary": {
+          "train_runtime": 7425.8033,
+          "train_samples_per_second": 25.856,
+          "train_steps_per_second": 0.539,
+          "train_loss": 96.46563173675537,
+          "epoch": 85.0
+        },
+        "cached": false
+      }
+    ]
+  },
+  "summary": {
+    "profile=libri_light_10hr_alpha=0.02": {
+      "n_total": 3,
+      "n_ok": 3,
+      "eval_wer": {
+        "values": [
+          0.10330809394447335,
+          0.1029805598905651,
+          0.10402096217945013
+        ],
+        "mean": 0.10343653867149619,
+        "std": 0.0005319612453969602
+      },
+      "eval_loss": {
+        "values": [
+          22.815744400024414,
+          23.464502334594727,
+          23.38425636291504
+        ],
+        "mean": 23.221501032511394,
+        "std": 0.35367879155822224
+      },
+      "train_runtime": {
+        "values": [
+          7418.7127,
+          7413.0465,
+          7425.8033
+        ],
+        "mean": 7419.1875,
+        "std": 6.391640074346715
+      }
+    }
+  }
+}
