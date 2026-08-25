@@ -42,6 +42,14 @@ fi
 ALPHA_MAX_VALUES=$(grep -vE '^\s*(#|$)' "$CONF" | tr '\n' ' ')
 echo "[queue-hmatch $PROFILE] alpha_max values from $CONF: $ALPHA_MAX_VALUES"
 
+# Pin the interpreter. These queues are launched detached, from a shell
+# that has NOT activated the conda environment, so a bare `python`
+# resolves to the base install and every run dies instantly on
+# `ModuleNotFoundError: No module named 'evaluate'`. Putting the env
+# first on PATH keeps the sweep scripts themselves unchanged, so they
+# still work when run by hand from an activated shell.
+export PATH="/home/chanwcom/miniconda3/envs/py3_10_hf/bin:$PATH"
+
 export CUDA_VISIBLE_DEVICES=$GPU
 exec python run_train_grid_seed_peak_capping.py \
     run_train_dynamic_grid_entropy_matched.sh \
