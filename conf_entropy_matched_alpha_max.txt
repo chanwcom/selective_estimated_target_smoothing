@@ -33,16 +33,30 @@
 # releases itself as the model gains confidence, so no separate warmup
 # schedule is needed.
 #
-# 1.0  = no clamp. The headline configuration: the entropy-matching
-#        equation alone decides, with no tuned hyperparameter anywhere.
-#        Also the risk case -- 44% of examples take alpha=1.0 early, with
-#        intervention L1 reaching ~1.0 (half the probability mass moved),
-#        which is the magnitude at which PP-SETS collapsed.
-# 0.1  = midpoint, added so that if 1.0 collapses and 0.05 does not, the
-#        boundary between them is bracketed rather than merely known to
-#        exist somewhere in between.
-# 0.05 = tight ceiling. Roughly 3x the late-phase solved alpha, so it
-#        still never binds after the early phase.
+# 1.0 was dropped after measuring it: at 1hr it collapses outright
+#     (eval_wer 0.9974 / 0.9975 against a 0.2261 baseline). The solved
+#     alpha pins at 1.0 for the whole run, which erases the alignment
+#     target, so the model never learns, so H(p) stays near log 32, so
+#     the ceiling stays exceeded -- a self-reinforcing loop. A clamp is
+#     required, not optional.
+# 0.1 was dropped after measuring it: the solved alpha pinned at the cap
+#     for 83 of 84 logged steps, so the run was a fixed alpha=0.1 in all
+#     but name and landed at 0.2471, worse than the 0.2261 no-smoothing
+#     baseline. Nothing was clamped by the entropy ceiling (0%): the
+#     equation simply wants more than 0.1, because H(q~)=0.44 has to
+#     reach H(p)=0.66 and 0.1 cannot span that.
+# 0.05 measured: the solved alpha pinned at the cap for 97-99% of logged
+#      steps here too, so this is a fixed alpha=0.05 in all but name.
+#      It nonetheless beat the fixed-alpha run at the same value
+#      (0.2032 over 2 seeds against 0.2085 +/- 0.0054), though the two
+#      seed sets overlap and n=2 does not separate them.
+#
+# 0.03 = the alpha at which fixed-alpha class-space smoothing peaks
+#      (0.1949 +/- 0.0040, the best 1hr result so far). Since the solved
+#      alpha tracks the cap whatever the cap is, capping at the known
+#      optimum is the method's best case: if entropy matching adds
+#      anything over a fixed alpha, it should show here, and if it lands
+#      at 0.195 the matching is contributing nothing.
 #
 # kappa is deliberately NOT swept here and stays at its default of 1.0,
 # i.e. exact entropy matching with no tuned quantity anywhere. The pilot
@@ -51,6 +65,4 @@
 # kappa > 1, which the current (0, 1] bound disallows) -- but opening
 # that reintroduces a tunable, so it is left for a separate ablation
 # rather than folded into the headline runs.
-1.0
-0.1
-0.05
+0.03
