@@ -595,7 +595,9 @@ def _default_run_name(args: argparse.Namespace) -> str:
     # which were label-space) keeps resolving to the same directory.
     if args.smoothing_space != "label":
         suffix += f"_{args.smoothing_space}space"
-    if args.alpha_mode != "fixed":
+    if args.alpha_mode == "entropy_matched_selective":
+        suffix += "_shmatch"
+    elif args.alpha_mode != "fixed":
         # alpha is solved for, so the alpha/beta already in the name
         # are meaningless; what identifies the run is the clamp and
         # the repayment fraction instead.
@@ -666,14 +668,21 @@ def parse_args():
              "docstring of cwk/loss/pytorch/shc_loss_util.py.")
     parser.add_argument(
         "--alpha_mode", type=str, default="fixed",
-        choices=["fixed", "entropy_matched"],
+        choices=["fixed", "entropy_matched", "entropy_matched_selective"],
         help="How the smoothing weight is chosen. 'fixed' (default) "
              "uses --alpha as given. 'entropy_matched' ignores "
              "--alpha/--beta and instead solves, per example, for the "
              "alpha whose smoothed target has the same mean per-frame "
              "entropy as the model's own acoustic posterior -- i.e. it "
              "repays the information the target leaked from the labels. "
-             "Requires --smoothing_space=class.")
+             "Requires --smoothing_space=class. "
+             "'entropy_matched_selective' (C-SETS-SH) is the same solve "
+             "but measures the model's entropy on the active set only, "
+             "so both entropies live on the same support. Without that, "
+             "H(p) spans all C classes while H(q~) spans the ~3 reachable "
+             "ones, H(p) is structurally larger, and early in training it "
+             "exceeds log N outright -- alpha then pins at its cap for the "
+             "whole run and the model never learns.")
     parser.add_argument(
         "--entropy_match_alpha_max", type=float, default=1.0,
         help="Upper clamp on the solved alpha. 1.0 (default) disables "
