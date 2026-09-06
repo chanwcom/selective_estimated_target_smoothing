@@ -156,3 +156,4 @@ same as `run_train_grid_seed.py`.
 | `run_train_grid_seed.py` | Multi-seed alpha × beta sweep |
 | `run_inference.sh` | Final WER for one checkpoint (both test splits) |
 | `run_inference_sweep.py` | Final WER for every checkpoint from a sweep |
+| `analysis/grid_table.py` | Alpha × beta results table from a grid_logs_* dir, in-progress seeds included |
