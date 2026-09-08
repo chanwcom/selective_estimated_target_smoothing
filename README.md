@@ -173,6 +173,48 @@ for the full list):
 | `--seed` | Weight init + data shuffle order (also tags `--run_name`) |
 | `--dataloader_num_workers` | Overlaps CPU audio decode with GPU compute |
 
+### The 1hr baseline, written out in full
+
+`run_train_dynamic.sh` is the 1hr baseline. Spelled out flag by flag — copy
+this as the starting point for a new config:
+
+```bash
+python wav2vec2_finetuning_sets.py \
+    --alpha=0.0 \
+    --beta=0.0 \
+    --vocab_size 32 \
+    --finetune_profile=libri_light_1hr \
+    --dynamic_batching \
+    --max_batch_audio_len 6400000 \
+    --max_sample_audio_len 480000 \
+    --dataloader_num_workers 4 \
+    --dataloader_persistent_workers \
+    --seed 0
+```
+
+| Flag | Meaning |
+|---|---|
+| `--alpha=0.0 --beta=0.0` | Smoothing off — this is what makes it the *baseline*. `alpha > 0` is the switch (`smoothing_enabled` in `shc_loss.py`), so at `alpha=0` the loss is plain CTC and `beta`, which only chooses the mixing distribution, has no effect |
+| `--vocab_size 32` | Use the SentencePiece unigram-32 vocab (`librispeech_unigram_32.model` under `--resource_top_dir`). Omit for wav2vec2's own character tokenizer |
+| `--finetune_profile=libri_light_1hr` | The 1h Libri-Light set, plus the schedule sized for it: warmup 1000, **max_steps 2000**, eval every 500 |
+| `--dynamic_batching` | Fill each batch to an audio-length budget instead of a fixed example count — fewer padding-wasted frames when utterance lengths vary |
+| `--max_batch_audio_len 6400000` | That budget, in waveform samples: 6.4M ÷ 16 kHz ≈ **400 s of audio per batch** |
+| `--max_sample_audio_len 480000` | Drop any utterance longer than **30 s** (480000 ÷ 16 kHz) — a safety net against mis-segmented outliers. Omit to disable |
+| `--dataloader_num_workers 4` | Decode audio on 4 CPU workers in parallel with GPU compute |
+| `--dataloader_persistent_workers` | Keep those workers alive between epochs instead of respawning them |
+| `--seed 0` | Weight init + shuffle order. Also tagged into the run name, so seeds never overwrite each other |
+
+The run above lands in
+`$CHECKPOINT_TOP_DIR/libri_light_1hr_shc_2000steps_alpha_0p0_beta_0p0_unigram_32_dynbatch6400000_seed0`
+and takes about an hour (measured: 58–60 min across the 15 runs in
+`grid_logs_1hr`, on the previous 4090-class machine).
+
+One caveat when copying this: `--smoothing_space=class` is a no-op at
+`alpha=0` — every space runs the same ops — but it still appends
+`_classspace` to the run name, so a baseline carrying it will not group with
+the other baselines under `run_inference_sweep.py --pattern`. Leave it off
+unless `alpha > 0`.
+
 Checkpoints are written under `--checkpoint_top_dir`
 (`$CHECKPOINT_TOP_DIR` by default), one subdirectory per run,
 named automatically from the flags above (profile, alpha, beta, vocab
