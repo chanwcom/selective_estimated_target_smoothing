@@ -36,7 +36,7 @@ fi
 # conda environment activated, where a bare `python` is the base install
 # and every run dies on `ModuleNotFoundError: No module named 'evaluate'`.
 source ./set_config.sh
-[ -n "${ASR_PYTHON_BIN:-}" ] && export PATH="$ASR_PYTHON_BIN:$PATH"
+[ -n "${PYTHON_BIN:-}" ] && export PATH="$PYTHON_BIN:$PATH"
 
 export CUDA_VISIBLE_DEVICES=$GPU
 echo "[queue-csets $PROFILE] alphas: $ALPHAS"

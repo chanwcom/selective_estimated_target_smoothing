@@ -39,7 +39,7 @@ WHAT TO LOOK AT.
 Usage:
     # Late training: a finished checkpoint from the fixed-alpha sweep.
     python pilot_entropy_match_probe.py \\
-        --checkpoint $ASR_CHECKPOINT_TOP_DIR/<run>/checkpoint-2000
+        --checkpoint $CHECKPOINT_TOP_DIR/<run>/checkpoint-2000
 
     # Early training: the pretrained encoder with a fresh CTC head, i.e.
     # roughly what step 0 looks like.

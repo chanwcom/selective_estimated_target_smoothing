@@ -15,14 +15,14 @@ export CWK_HOME=/path/to/cognitive_workflow_kit
 # `libri_light_finetuning/webdataset/{1h,10h}` and
 # `librispeech/webdataset/{train-clean-100,test-clean,test-other,...}`,
 # each a directory of `shard-*.tar` files.
-export ASR_DB_TOP_DIR=/path/to/datasets/asr
+export DB_TOP_DIR=/path/to/datasets/asr
 
 # Where training writes checkpoints. Prefer a local disk over NFS -- these
 # are written often enough during training that network latency shows up
 # directly in step time.
-export ASR_CHECKPOINT_TOP_DIR=$HOME/models
+export CHECKPOINT_TOP_DIR=$HOME/models
 
 # `bin/` of the conda env to run queued jobs with. A `nohup`-style launch
 # doesn't inherit an activated env, so queue_*.sh prepend this to PATH.
 # Leave it empty to just use whatever `python` is already on PATH.
-export ASR_PYTHON_BIN=$HOME/miniconda3/envs/py3_12_sets/bin
+export PYTHON_BIN=$HOME/miniconda3/envs/py3_12_sets/bin

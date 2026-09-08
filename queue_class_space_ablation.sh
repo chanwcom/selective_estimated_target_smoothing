@@ -48,7 +48,7 @@ fi
 # first on PATH keeps the sweep scripts themselves unchanged, so they
 # still work when run by hand from an activated shell.
 source ./set_config.sh
-[ -n "${ASR_PYTHON_BIN:-}" ] && export PATH="$ASR_PYTHON_BIN:$PATH"
+[ -n "${PYTHON_BIN:-}" ] && export PATH="$PYTHON_BIN:$PATH"
 
 export CUDA_VISIBLE_DEVICES=$GPU
 exec python run_train_grid_seed.py \

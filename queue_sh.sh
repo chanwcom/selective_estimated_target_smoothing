@@ -15,7 +15,7 @@ if [ "$WAIT_PID" != "0" ]; then
     sleep 30
 fi
 source ./set_config.sh
-[ -n "${ASR_PYTHON_BIN:-}" ] && export PATH="$ASR_PYTHON_BIN:$PATH"
+[ -n "${PYTHON_BIN:-}" ] && export PATH="$PYTHON_BIN:$PATH"
 export CUDA_VISIBLE_DEVICES=$GPU
 exec python run_train_grid_seed_peak_capping.py \
     run_train_dynamic_grid_sh.sh --alphas 0 --seeds 0 1 2 \

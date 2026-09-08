@@ -31,8 +31,8 @@ def _require(name: str) -> str:
 
 
 CWK_HOME = _require("CWK_HOME")
-DB_TOP_DIR = _require("ASR_DB_TOP_DIR")
-CHECKPOINT_TOP_DIR = _require("ASR_CHECKPOINT_TOP_DIR")
+DB_TOP_DIR = _require("DB_TOP_DIR")
+CHECKPOINT_TOP_DIR = _require("CHECKPOINT_TOP_DIR")
 
 # SentencePiece vocabularies are checked into the CWK repo, not this one.
 RESOURCE_TOP_DIR = os.path.join(CWK_HOME, "resources", "spm")
