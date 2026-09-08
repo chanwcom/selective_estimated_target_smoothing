@@ -32,10 +32,23 @@ installs cleanly and then fails at runtime with "no kernel image is
 available for execution on the device":
 
 ```bash
-pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu128
+pip install torch torchaudio torchcodec --index-url https://download.pytorch.org/whl/cu128
 ```
 
-Install torch and torchaudio together so their versions stay matched.
+Install all three from the same index so their CUDA builds stay matched.
+
+`torchcodec` is not optional: from torchaudio 2.9 on, `torchaudio.load`
+delegates decoding to it, and that is what reads the FLAC out of the
+webdataset shards (`common/sample_util.py`). Without it, training dies on
+the first batch inside a DataLoader worker with `No module named
+'torchcodec'`.
+
+It must come from the `cu128` index above, **not** plain `pip install
+torchcodec` — PyPI serves a CUDA-13 build that installs fine and then fails
+at import with `libnvrtc.so.13: cannot open shared object file`, because a
+`cu128` torch ships `libnvrtc.so.12`. The matching wheel is
+`torchcodec ...+cu128`. It also needs FFmpeg shared libraries (4–7) present
+on the system; Ubuntu's `ffmpeg` package supplies them.
 
 ### 3. Install the remaining dependencies
 
@@ -126,13 +139,21 @@ source set_config.sh
 python -c "import torch; print(torch.__version__, torch.cuda.is_available())"
 python -c "from cwk.loss.pytorch import shc_loss, shc_loss_util; print('cwk ok')"
 python -c "from common import sample_util; print('common ok')"
+python -c "from torchcodec.decoders import AudioDecoder; print('audio decode ok')"
 python -c "from torchaudio.models import decoder; decoder.ctc_decoder; print('decoder ok')"
 python -c "import repo_config, os; [print(('ok  ' if os.path.isdir(p) else 'MISSING '), p) for p in (repo_config.DB_TOP_DIR, repo_config.RESOURCE_TOP_DIR, repo_config.CHECKPOINT_TOP_DIR)]"
 ```
 
-If the third fails, `set_config.sh` wasn't sourced in this shell. If the
-fourth fails, `flashlight-text` is missing — training still works, only
-beam-search inference is affected. The last one is the check that the paths
+If the third fails, `set_config.sh` wasn't sourced in this shell.
+
+The fourth is worth running even though it looks redundant with step 2: it
+is the exact import `torchaudio.load` makes for every training sample, and
+it is the one that fails on a mismatched `torchcodec` build. Checking it
+here costs a second; discovering it from a DataLoader worker traceback after
+the model has already loaded does not.
+
+If the fifth fails, `flashlight-text` is missing — training still works,
+only beam-search inference is affected. The last one checks that the paths
 in `config.local.sh` actually exist on this machine.
 
 Long jobs (anything below can run for hours to days) should be started
