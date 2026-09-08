@@ -7,6 +7,71 @@ sweep orchestrators, and their logs.
 
 ## Setup
 
+Steps 1–4 are one-time. Step 5 is per-shell — repeat it in every new
+terminal before running anything below.
+
+### 1. Create and activate the conda environment
+
+```bash
+conda create --name py3_12_sets python=3.12
+conda activate py3_12_sets
+```
+
+3.11 works equally well. Nothing in this repo or in CWK constrains the
+version (CWK's `pyproject.toml` only asks for `>=3.7`); 3.12 is chosen to
+match the system Python. If `conda` isn't on your PATH, install Miniconda
+first — or use `python3 -m venv` instead, since nothing here depends on
+conda specifically.
+
+### 2. Install PyTorch and torchaudio
+
+Check your CUDA version with `nvidia-smi`, then pick the matching command
+from https://pytorch.org/get-started/locally/. The RTX 5090s on this machine
+are Blackwell (sm_120) and require a **CUDA 12.8+** build — an older wheel
+installs cleanly and then fails at runtime with "no kernel image is
+available for execution on the device":
+
+```bash
+pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu128
+```
+
+Install torch and torchaudio together so their versions stay matched.
+
+### 3. Install the remaining dependencies
+
+```bash
+pip install transformers accelerate   # model, processor, Trainer
+pip install evaluate jiwer            # evaluate.load("wer") needs jiwer
+pip install webdataset                # sharded .tar training data
+pip install soundfile                 # FLAC decoding
+pip install sentencepiece             # unigram vocab
+pip install flashlight-text           # torchaudio ctc_decoder backend
+```
+
+`flashlight-text` is only needed by `wav2vec2_inference.py`'s beam search —
+`torchaudio.models.decoder.ctc_decoder` is a thin wrapper over it and raises
+without it. KenLM is *not* needed: the decoder is constructed with
+`lm=None` and `lexicon=None`.
+
+### 4. Install the CWK package
+
+The two entry-point scripts import from the sibling `cognitive_workflow_kit`
+repo in two different ways, and each needs its own step:
+
+```bash
+cd /mnt/synology_nas_00/chanwcom/local_repository/cognitive_workflow_kit
+pip install -e .
+cd -
+```
+
+That covers `from cwk.loss.pytorch import shc_loss` — the SHC loss itself.
+The other import, `from common import sample_util`, lives in that repo's
+`scripts/` directory, which its `pyproject.toml` deliberately excludes from
+the package (`include = ["cwk*"]`). It resolves via `PYTHONPATH` in step 5
+instead, which is why sourcing `set_config.sh` isn't optional.
+
+### 5. Per-shell environment
+
 ```bash
 source set_config.sh
 ```
@@ -19,6 +84,19 @@ first:
 export DEVICE_ID=1
 source set_config.sh
 ```
+
+### 6. Verify the install
+
+```bash
+python -c "import torch; print(torch.__version__, torch.cuda.is_available())"
+python -c "from cwk.loss.pytorch import shc_loss, shc_loss_util; print('cwk ok')"
+python -c "from common import sample_util; print('common ok')"
+python -c "from torchaudio.models import decoder; decoder.ctc_decoder; print('decoder ok')"
+```
+
+If the third fails, `set_config.sh` wasn't sourced in this shell. If the
+fourth fails, `flashlight-text` is missing — training still works, only
+beam-search inference is affected.
 
 Long jobs (anything below can run for hours to days) should be started
 inside `tmux` so they survive a dropped SSH connection:

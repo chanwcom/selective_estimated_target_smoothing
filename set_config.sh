@@ -1,4 +1,4 @@
-CWK_SCRIPT_HOME=/mnt/data/home/chanwcom/local_repository/cognitive_workflow_kit_emnlp_2026/scripts
+CWK_SCRIPT_HOME=/mnt/synology_nas_00/chanwcom/local_repository/cognitive_workflow_kit/scripts
 DEVICE_ID=${DEVICE_ID:-0}
 
 source $CWK_SCRIPT_HOME/setup_path.sh

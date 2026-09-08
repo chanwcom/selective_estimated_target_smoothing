@@ -114,7 +114,7 @@ from cwk.loss.pytorch import shc_loss, shc_loss_util
 #     underneath it. Renaming acknowledges that other shared resources
 #     (LMs, lexicons, etc.) could reasonably live in the same directory
 #     later.
-_DEFAULT_DB_TOP_DIR = "/mnt/data/database"
+_DEFAULT_DB_TOP_DIR = "/mnt/synology_nas_00"
 _DEFAULT_CHECKPOINT_TOP_DIR = "/mnt/data/home/chanwcom/models"
 # Repo-relative, not tied to any one user's home directory: this script
 # lives at <repo_root>/scripts/asr/wav2vec2/, and the SPM resources are
@@ -158,19 +158,19 @@ _GPU_PROFILES: Dict[str, Dict[str, Any]] = {
 # overrides just that value.
 _FINETUNE_PROFILES: Dict[str, Dict[str, Any]] = {
     "libri_light_1hr": dict(
-        train_subdir="libri_light/1h",
+        train_subdir="libri_light_finetuning/webdataset/1h",
         warmup_steps=1000,
         max_steps=2000,
         eval_steps=500,
     ),
     "libri_light_10hr": dict(
-        train_subdir="libri_light/10h",
+        train_subdir="libri_light_finetuning/webdataset/10h",
         warmup_steps=1000,
         max_steps=4000,
         eval_steps=500,
     ),
     "libri_speech_clean_100hr": dict(
-        train_subdir="libri_light/train-clean-100",
+        train_subdir="librispeech/webdataset/train-clean-100",
         warmup_steps=1000,
         max_steps=8000,
         eval_steps=500,
@@ -181,7 +181,7 @@ _FINETUNE_PROFILES: Dict[str, Dict[str, Any]] = {
     # subdirectories, one per split (see `train_shard_subdirs` below, and
     # `sample_util.make_dataset`'s `sub_shard_dirs` param that consumes it).
     "libri_speech_full_960hr": dict(
-        train_subdir="libri_speech_webdataset_new_oct_2025",
+        train_subdir="librispeech/webdataset/"
         train_shard_subdirs=(
             "train-clean-100", "train-clean-360", "train-other-500"),
         warmup_steps=500,
