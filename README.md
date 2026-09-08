@@ -40,6 +40,7 @@ Install torch and torchaudio together so their versions stay matched.
 ### 3. Install the remaining dependencies
 
 ```bash
+pip install numpy                     # imported directly by both entry points
 pip install transformers accelerate   # model, processor, Trainer
 pip install evaluate jiwer            # evaluate.load("wer") needs jiwer
 pip install webdataset                # sharded .tar training data
@@ -47,6 +48,12 @@ pip install soundfile                 # FLAC decoding
 pip install sentencepiece             # unigram vocab
 pip install flashlight-text           # torchaudio ctc_decoder backend
 ```
+
+That is every third-party import in this repo and in the `common` helpers it
+uses, plus three that are never imported by name: `accelerate` (required by
+HF `Trainer`), `jiwer` (the backend `evaluate.load("wer")` loads), and
+`flashlight-text`. `numpy` also arrives transitively with `transformers`,
+but it is listed because the scripts import it directly.
 
 `flashlight-text` is only needed by `wav2vec2_inference.py`'s beam search —
 `torchaudio.models.decoder.ctc_decoder` is a thin wrapper over it and raises
@@ -81,14 +88,14 @@ cp config.local.sh.example config.local.sh
 # then edit config.local.sh
 ```
 
-It defines three paths:
+It defines four values:
 
 | Variable | What it is |
 |---|---|
 | `CWK_HOME` | The `cognitive_workflow_kit` checkout from step 4 — supplies `cwk`, `common`, and the SPM vocabularies under its `resources/spm/` |
-| `ASR_DB_TOP_DIR` | Dataset root, holding `libri_light_finetuning/webdataset/{1h,10h}` and `librispeech/webdataset/{train-clean-100,test-clean,test-other,...}`, each a directory of `shard-*.tar` files |
-| `ASR_CHECKPOINT_TOP_DIR` | Where training writes checkpoints. Prefer a local disk over NFS — these are written often enough that network latency shows up in step time |
-| `ASR_PYTHON_BIN` | `bin/` of the conda env from step 1, for `queue_*.sh` — a `nohup`-style launch doesn't inherit an activated env. Leave empty to use whatever `python` is on PATH |
+| `DB_TOP_DIR` | Dataset root, holding `libri_light_finetuning/webdataset/{1h,10h}` and `librispeech/webdataset/{train-clean-100,test-clean,test-other,...}`, each a directory of `shard-*.tar` files |
+| `CHECKPOINT_TOP_DIR` | Where training writes checkpoints. Prefer a local disk over NFS — these are written often enough that network latency shows up in step time |
+| `PYTHON_BIN` | `bin/` of the conda env from step 1, for `queue_*.sh` — a `nohup`-style launch doesn't inherit an activated env. Leave empty to use whatever `python` is on PATH |
 
 `config.local.sh` is gitignored, so each machine keeps its own and nothing
 here conflicts across clones. `set_config.sh` sources it, and the Python
@@ -167,7 +174,7 @@ for the full list):
 | `--dataloader_num_workers` | Overlaps CPU audio decode with GPU compute |
 
 Checkpoints are written under `--checkpoint_top_dir`
-(`$ASR_CHECKPOINT_TOP_DIR` by default), one subdirectory per run,
+(`$CHECKPOINT_TOP_DIR` by default), one subdirectory per run,
 named automatically from the flags above (profile, alpha, beta, vocab
 size, batching mode, seed) — different configs never collide.
 
@@ -243,7 +250,7 @@ python run_inference_sweep.py \
 ```
 
 `--pattern` is matched against run directory names under
-`--checkpoint-top-dir` (default `$ASR_CHECKPOINT_TOP_DIR`); each
+`--checkpoint-top-dir` (default `$CHECKPOINT_TOP_DIR`); each
 match's highest-numbered `checkpoint-N` is evaluated. If the directory
 name contains `alpha_..._beta_..._seed...` (as the training scripts name
 them), results are grouped into an alpha × beta grid — printed separately
