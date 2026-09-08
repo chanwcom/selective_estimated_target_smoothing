@@ -11,3 +11,8 @@ __pycache__/
 # Model checkpoints and HuggingFace run outputs.
 checkpoint-*/
 wandb/
+
+# Per-machine paths (dataset root, CWK checkout, checkpoint dir). Every
+# machine keeps its own copy, made from config.local.sh.example -- tracking
+# it would put one machine's absolute paths in everyone else's clone.
+config.local.sh

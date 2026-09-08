@@ -32,7 +32,7 @@ LOG_DIR=${LOG_DIR:-grid_logs_1hr_hybrid}
 ALPHAS=${ALPHAS:-"0.01 0.02 0.03 0.04 0.05"}
 BETAS=${BETAS:-"1.0 0.5 0.25 0.75 0.0"}
 
-cd /mnt/data/home/chanwcom/local_repository/selective_estimated_target_smoothing
+cd "$(cd -P "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 if [ "$WAIT_PID" != "0" ]; then
     echo "[queue-hybrid $PROFILE] waiting for pid $WAIT_PID to release GPU$GPU ..."
@@ -46,7 +46,8 @@ fi
 # Pin the interpreter -- these queues launch detached from a shell with no
 # conda environment activated, where a bare `python` is the base install
 # and every run dies on `ModuleNotFoundError: No module named 'evaluate'`.
-export PATH="/home/chanwcom/miniconda3/envs/py3_10_hf/bin:$PATH"
+source ./set_config.sh
+[ -n "${ASR_PYTHON_BIN:-}" ] && export PATH="$ASR_PYTHON_BIN:$PATH"
 
 export CUDA_VISIBLE_DEVICES=$GPU
 echo "[queue-hybrid $PROFILE] alphas: $ALPHAS"

@@ -39,7 +39,7 @@ WHAT TO LOOK AT.
 Usage:
     # Late training: a finished checkpoint from the fixed-alpha sweep.
     python pilot_entropy_match_probe.py \\
-        --checkpoint /mnt/data/home/chanwcom/models/<run>/checkpoint-2000
+        --checkpoint $ASR_CHECKPOINT_TOP_DIR/<run>/checkpoint-2000
 
     # Early training: the pretrained encoder with a fresh CTC head, i.e.
     # roughly what step 0 looks like.
@@ -63,14 +63,15 @@ from torch.utils.data import DataLoader
 from transformers import AutoModelForCTC, AutoProcessor
 
 # Custom imports
+import repo_config
 from common import sample_util
 from cwk.loss.pytorch import seq_loss_util, shc_loss, shc_loss_util
 from wav2vec2_finetuning_sets import (DataCollatorCTCWithPadding,
                                       Wav2Vec2SPMTokenizer)
 
-_DEFAULT_TRAIN_DIR = "/mnt/data/database/libri_light/1h"
-_DEFAULT_RESOURCE_DIR = ("/mnt/data/home/chanwcom/local_repository/"
-                         "cognitive_workflow_kit_emnlp_2026/resources/spm")
+_DEFAULT_TRAIN_DIR = os.path.join(repo_config.DB_TOP_DIR,
+                                  "libri_light_finetuning/webdataset/1h")
+_DEFAULT_RESOURCE_DIR = repo_config.RESOURCE_TOP_DIR
 
 
 def parse_args():

@@ -2,12 +2,12 @@
 
 Experiment scripts for fine-tuning wav2vec2 with the SHC loss (alpha/beta
 smoothing) on LibriSpeech, and evaluating the results. Training code lives
-in `cognitive_workflow_kit_emnlp_2026`; this repo holds the run scripts,
+in `cognitive_workflow_kit`; this repo holds the run scripts,
 sweep orchestrators, and their logs.
 
 ## Setup
 
-Steps 1–4 are one-time. Step 5 is per-shell — repeat it in every new
+Steps 1–5 are one-time. Step 6 is per-shell — repeat it in every new
 terminal before running anything below.
 
 ### 1. Create and activate the conda environment
@@ -59,7 +59,7 @@ The two entry-point scripts import from the sibling `cognitive_workflow_kit`
 repo in two different ways, and each needs its own step:
 
 ```bash
-cd /mnt/synology_nas_00/chanwcom/local_repository/cognitive_workflow_kit
+cd <your cognitive_workflow_kit checkout>   # this path becomes CWK_HOME in step 5
 pip install -e .
 cd -
 ```
@@ -67,36 +67,66 @@ cd -
 That covers `from cwk.loss.pytorch import shc_loss` — the SHC loss itself.
 The other import, `from common import sample_util`, lives in that repo's
 `scripts/` directory, which its `pyproject.toml` deliberately excludes from
-the package (`include = ["cwk*"]`). It resolves via `PYTHONPATH` in step 5
+the package (`include = ["cwk*"]`). It resolves via `PYTHONPATH` in step 6
 instead, which is why sourcing `set_config.sh` isn't optional.
 
-### 5. Per-shell environment
+### 5. Point the repo at this machine's paths
+
+**This is the only file you edit per machine.** No absolute path is baked
+into any tracked script, so a fresh `git clone` elsewhere needs this step
+and nothing else:
+
+```bash
+cp config.local.sh.example config.local.sh
+# then edit config.local.sh
+```
+
+It defines three paths:
+
+| Variable | What it is |
+|---|---|
+| `CWK_HOME` | The `cognitive_workflow_kit` checkout from step 4 — supplies `cwk`, `common`, and the SPM vocabularies under its `resources/spm/` |
+| `ASR_DB_TOP_DIR` | Dataset root, holding `libri_light_finetuning/webdataset/{1h,10h}` and `librispeech/webdataset/{train-clean-100,test-clean,test-other,...}`, each a directory of `shard-*.tar` files |
+| `ASR_CHECKPOINT_TOP_DIR` | Where training writes checkpoints. Prefer a local disk over NFS — these are written often enough that network latency shows up in step time |
+| `ASR_PYTHON_BIN` | `bin/` of the conda env from step 1, for `queue_*.sh` — a `nohup`-style launch doesn't inherit an activated env. Leave empty to use whatever `python` is on PATH |
+
+`config.local.sh` is gitignored, so each machine keeps its own and nothing
+here conflicts across clones. `set_config.sh` sources it, and the Python
+scripts read the same values through `repo_config.py`, which is what makes
+the `--db_top_dir` / `--resource_top_dir` / `--checkpoint_top_dir` defaults
+correct without anyone passing them.
+
+### 6. Per-shell environment
 
 ```bash
 source set_config.sh
 ```
 
-Sets `PYTHONPATH` (via the CWK repo's `setup_path.sh`), `CUDA_VISIBLE_DEVICES`,
-and a few NCCL/allocator env vars. To pick a specific GPU, set `DEVICE_ID`
-first:
+Loads `config.local.sh`, then sets `PYTHONPATH` (via the CWK repo's
+`setup_path.sh`), `CUDA_VISIBLE_DEVICES`, and a few NCCL/allocator env vars.
+It stops with an explicit message if `config.local.sh` is missing, so a
+fresh clone tells you what to do rather than failing later on a wrong path.
+To pick a specific GPU, set `DEVICE_ID` first:
 
 ```bash
 export DEVICE_ID=1
 source set_config.sh
 ```
 
-### 6. Verify the install
+### 7. Verify the install
 
 ```bash
 python -c "import torch; print(torch.__version__, torch.cuda.is_available())"
 python -c "from cwk.loss.pytorch import shc_loss, shc_loss_util; print('cwk ok')"
 python -c "from common import sample_util; print('common ok')"
 python -c "from torchaudio.models import decoder; decoder.ctc_decoder; print('decoder ok')"
+python -c "import repo_config, os; [print(('ok  ' if os.path.isdir(p) else 'MISSING '), p) for p in (repo_config.DB_TOP_DIR, repo_config.RESOURCE_TOP_DIR, repo_config.CHECKPOINT_TOP_DIR)]"
 ```
 
 If the third fails, `set_config.sh` wasn't sourced in this shell. If the
 fourth fails, `flashlight-text` is missing — training still works, only
-beam-search inference is affected.
+beam-search inference is affected. The last one is the check that the paths
+in `config.local.sh` actually exist on this machine.
 
 Long jobs (anything below can run for hours to days) should be started
 inside `tmux` so they survive a dropped SSH connection:
@@ -137,7 +167,7 @@ for the full list):
 | `--dataloader_num_workers` | Overlaps CPU audio decode with GPU compute |
 
 Checkpoints are written under `--checkpoint_top_dir`
-(`/mnt/data/home/chanwcom/models` by default), one subdirectory per run,
+(`$ASR_CHECKPOINT_TOP_DIR` by default), one subdirectory per run,
 named automatically from the flags above (profile, alpha, beta, vocab
 size, batching mode, seed) — different configs never collide.
 
@@ -213,7 +243,7 @@ python run_inference_sweep.py \
 ```
 
 `--pattern` is matched against run directory names under
-`--checkpoint-top-dir` (default `/mnt/data/home/chanwcom/models`); each
+`--checkpoint-top-dir` (default `$ASR_CHECKPOINT_TOP_DIR`); each
 match's highest-numbered `checkpoint-N` is evaluated. If the directory
 name contains `alpha_..._beta_..._seed...` (as the training scripts name
 them), results are grouped into an alpha × beta grid — printed separately
@@ -224,7 +254,9 @@ same as `run_train_grid_seed.py`.
 
 | File | Purpose |
 |---|---|
-| `set_config.sh` | Env setup (PYTHONPATH, GPU selection) |
+| `config.local.sh.example` | Template for the per-machine paths; copy to `config.local.sh` (gitignored) and edit |
+| `set_config.sh` | Per-shell env setup — sources `config.local.sh`, sets PYTHONPATH and GPU selection |
+| `repo_config.py` | Python-side view of those paths; every script's directory defaults come from here |
 | `wav2vec2_finetuning_sets.py` | Training entry point |
 | `wav2vec2_inference.py` | Evaluation entry point (WER via pipeline or beam search) |
 | `run_train_fixed.sh`, `run_train_dynamic.sh` | Single training runs |

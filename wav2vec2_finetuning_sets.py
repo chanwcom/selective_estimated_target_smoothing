@@ -88,6 +88,7 @@ from transformers import (AutoModelForCTC, AutoProcessor,
                           PreTrainedTokenizer, Trainer, TrainingArguments)
 
 # Custom imports
+import repo_config
 from common import sample_util
 from cwk.loss.pytorch import shc_loss, shc_loss_util
 
@@ -114,15 +115,9 @@ from cwk.loss.pytorch import shc_loss, shc_loss_util
 #     underneath it. Renaming acknowledges that other shared resources
 #     (LMs, lexicons, etc.) could reasonably live in the same directory
 #     later.
-_DEFAULT_DB_TOP_DIR = "/mnt/synology_nas_00"
-_DEFAULT_CHECKPOINT_TOP_DIR = "/mnt/data/home/chanwcom/models"
-# Repo-relative, not tied to any one user's home directory: this script
-# lives at <repo_root>/scripts/asr/wav2vec2/, and the SPM resources are
-# checked into <repo_root>/resources/spm/.
-_REPO_ROOT = os.path.abspath(
-    "/mnt/data/home/chanwcom/local_repository/cognitive_workflow_kit_emnlp_2026")
-#    os.path.join(os.path.dirname(__file__), "..", "..", ".."))
-_DEFAULT_RESOURCE_TOP_DIR = os.path.join(_REPO_ROOT, "resources", "spm")
+_DEFAULT_DB_TOP_DIR = repo_config.DB_TOP_DIR
+_DEFAULT_CHECKPOINT_TOP_DIR = repo_config.CHECKPOINT_TOP_DIR
+_DEFAULT_RESOURCE_TOP_DIR = repo_config.RESOURCE_TOP_DIR
 
 # GPU hyperparameter presets: hardware/batch-shaped settings only (how big a
 # batch and how fast to step), independent of how much data or how long the
@@ -181,7 +176,7 @@ _FINETUNE_PROFILES: Dict[str, Dict[str, Any]] = {
     # subdirectories, one per split (see `train_shard_subdirs` below, and
     # `sample_util.make_dataset`'s `sub_shard_dirs` param that consumes it).
     "libri_speech_full_960hr": dict(
-        train_subdir="librispeech/webdataset/"
+        train_subdir="librispeech/webdataset/",
         train_shard_subdirs=(
             "train-clean-100", "train-clean-360", "train-other-500"),
         warmup_steps=500,
@@ -730,8 +725,7 @@ def parse_args():
     parser.add_argument(
         "--test_top_dir", type=str, default=None,
         help="Evaluation dataset directory. Defaults to "
-             "'<db_top_dir>/libri_speech_webdataset_new_oct_2025/"
-             "test-clean'.")
+             "'<db_top_dir>/librispeech/webdataset/test-clean'.")
     parser.add_argument(
         "--resource_top_dir", type=str, default=_DEFAULT_RESOURCE_TOP_DIR,
         help="Directory containing shared resources referenced by name, "
@@ -905,7 +899,7 @@ def main():
     train_top_dir = args.train_top_dir or os.path.join(
         args.db_top_dir, args.train_subdir)
     test_top_dir = args.test_top_dir or os.path.join(
-        args.db_top_dir, "libri_speech_webdataset_new_oct_2025/test-clean")
+        args.db_top_dir, "librispeech/webdataset/test-clean")
 
     processor = AutoProcessor.from_pretrained("facebook/wav2vec2-base")
 

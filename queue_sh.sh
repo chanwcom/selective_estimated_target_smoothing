@@ -7,14 +7,15 @@ WAIT_PID=${WAIT_PID:-0}
 GPU=${GPU:-0}
 PROFILE=${PROFILE:-libri_light_1hr}
 LOG_DIR=${LOG_DIR:-grid_logs_1hr_sh}
-cd /mnt/data/home/chanwcom/local_repository/selective_estimated_target_smoothing
+cd "$(cd -P "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 if [ "$WAIT_PID" != "0" ]; then
     echo "[queue-sh $PROFILE] waiting for pid $WAIT_PID ..."
     while kill -0 "$WAIT_PID" 2>/dev/null; do sleep 60; done
     echo "[queue-sh $PROFILE] pid $WAIT_PID exited at $(date -Is)."
     sleep 30
 fi
-export PATH="/home/chanwcom/miniconda3/envs/py3_10_hf/bin:$PATH"
+source ./set_config.sh
+[ -n "${ASR_PYTHON_BIN:-}" ] && export PATH="$ASR_PYTHON_BIN:$PATH"
 export CUDA_VISIBLE_DEVICES=$GPU
 exec python run_train_grid_seed_peak_capping.py \
     run_train_dynamic_grid_sh.sh --alphas 0 --seeds 0 1 2 \

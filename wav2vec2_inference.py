@@ -91,17 +91,13 @@ from transformers import (AutoModelForCTC, AutoProcessor,
                           PreTrainedTokenizer, pipeline)
 
 # Custom imports
+import repo_config
 from common import sample_util
 
-# Same directory conventions as the training script.
-db_top_dir = "/mnt/data/database"
-# Repo-relative (matches wav2vec2_finetuning_sets.py's convention in this
-# same directory): this script's checkout lives outside the CWK repo, so
-# unlike the canonical copy under cognitive_workflow_kit_emnlp_2026/scripts,
-# it can't derive _REPO_ROOT from its own __file__ location.
-_REPO_ROOT = os.path.abspath(
-    "/mnt/data/home/chanwcom/local_repository/cognitive_workflow_kit_emnlp_2026")
-spm_top_dir = os.path.join(_REPO_ROOT, "resources", "spm")
+# Same directory conventions as the training script -- both read them from
+# repo_config, so they can't drift apart.
+db_top_dir = repo_config.DB_TOP_DIR
+spm_top_dir = repo_config.RESOURCE_TOP_DIR
 
 
 # -----------------------------------------------------------------------
@@ -412,7 +408,7 @@ def main():
     processor, spm_model_path = build_processor(args.vocab_size)
 
     test_top_dir = os.path.join(
-        db_top_dir, "libri_speech_webdataset_new_oct_2025", args.test_split)
+        db_top_dir, "librispeech", "webdataset", args.test_split)
 
     # Same dataset construction call as training's test_dataset.
     test_dataset = sample_util.make_dataset(test_top_dir, True, spm_model_path)

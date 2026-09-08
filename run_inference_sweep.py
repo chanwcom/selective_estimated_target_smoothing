@@ -28,7 +28,7 @@ Usage:
         --pattern "libri_light_1hr_shc_2500steps_alpha_*_beta_*_unigram_32_dynbatch6400000_seed*"
 
     python run_inference_sweep.py \\
-        --checkpoint-top-dir /mnt/data/home/chanwcom/models \\
+        --checkpoint-top-dir <some other checkpoint root> \\
         --pattern "libri_light_10hr_shc_5000steps_alpha_*_beta_*_unigram_32_bucket0_seed*" \\
         --log-dir inference_logs_10hr
 """
@@ -46,7 +46,9 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-_DEFAULT_CHECKPOINT_TOP_DIR = "/mnt/data/home/chanwcom/models"
+import repo_config
+
+_DEFAULT_CHECKPOINT_TOP_DIR = repo_config.CHECKPOINT_TOP_DIR
 _DEFAULT_NAME_REGEX = r"alpha_(?P<alpha>[\w]+)_beta_(?P<beta>[\w]+)_unigram_\d+.*_seed(?P<seed>\d+)$"
 
 

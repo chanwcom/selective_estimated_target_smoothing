@@ -28,7 +28,7 @@ PROFILE=${PROFILE:-libri_light_1hr}
 LOG_DIR=${LOG_DIR:-grid_logs_1hr_entropy_matched}
 CONF=${CONF:-conf_entropy_matched_alpha_max.txt}
 
-cd /mnt/data/home/chanwcom/local_repository/selective_estimated_target_smoothing
+cd "$(cd -P "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 if [ "$WAIT_PID" != "0" ]; then
     echo "[queue-hmatch $PROFILE] waiting for pid $WAIT_PID to release GPU$GPU ..."
@@ -48,7 +48,8 @@ echo "[queue-hmatch $PROFILE] alpha_max values from $CONF: $ALPHA_MAX_VALUES"
 # `ModuleNotFoundError: No module named 'evaluate'`. Putting the env
 # first on PATH keeps the sweep scripts themselves unchanged, so they
 # still work when run by hand from an activated shell.
-export PATH="/home/chanwcom/miniconda3/envs/py3_10_hf/bin:$PATH"
+source ./set_config.sh
+[ -n "${ASR_PYTHON_BIN:-}" ] && export PATH="$ASR_PYTHON_BIN:$PATH"
 
 export CUDA_VISIBLE_DEVICES=$GPU
 exec python run_train_grid_seed_peak_capping.py \
