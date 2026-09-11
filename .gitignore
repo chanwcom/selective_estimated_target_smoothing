@@ -16,3 +16,4 @@ wandb/
 # machine keeps its own copy, made from config.local.sh.example -- tracking
 # it would put one machine's absolute paths in everyone else's clone.
 config.local.sh
+.claude/settings.local.json

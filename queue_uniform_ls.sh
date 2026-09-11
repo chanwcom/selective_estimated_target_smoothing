@@ -35,6 +35,11 @@ if [ "$WAIT_PID" != "0" ]; then
     sleep 30
 fi
 
+# CWK's setup_path.sh, reached via set_config.sh, expands $PYTHONPATH
+# unguarded, which aborts under `set -u` when this queue is launched
+# detached (nohup) from a shell that never exported one.
+export PYTHONPATH="${PYTHONPATH:-}"
+
 # Pin the interpreter -- these queues launch detached from a shell with no
 # conda environment activated, where a bare `python` is the base install.
 source ./set_config.sh
