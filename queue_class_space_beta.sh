@@ -20,6 +20,7 @@ PROFILE=${PROFILE:-libri_light_1hr}
 LOG_DIR=${LOG_DIR:-grid_logs_1hr_class_space}
 ALPHAS=${ALPHAS:-"0.01 0.02 0.03 0.04 0.05"}
 BETAS=${BETAS:-"0.25 0.5 0.75"}
+SEEDS=${SEEDS:-"0 1 2"}
 
 cd "$(cd -P "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
@@ -31,6 +32,11 @@ if [ "$WAIT_PID" != "0" ]; then
     echo "[queue-csets $PROFILE] pid $WAIT_PID exited at $(date -Is)."
     sleep 30
 fi
+
+# CWK's setup_path.sh, reached via set_config.sh, expands $PYTHONPATH
+# unguarded, which aborts under `set -u` when this queue is launched
+# detached (nohup) from a shell that never exported one.
+export PYTHONPATH="${PYTHONPATH:-}"
 
 # Pin the interpreter -- these queues launch detached from a shell with no
 # conda environment activated, where a bare `python` is the base install
@@ -45,6 +51,6 @@ exec python run_train_grid_seed.py \
     run_train_dynamic_grid_class_space.sh \
     --alphas $ALPHAS \
     --betas $BETAS \
-    --seeds 0 1 2 \
+    --seeds $SEEDS \
     --profile "$PROFILE" \
     --log-dir "$LOG_DIR"

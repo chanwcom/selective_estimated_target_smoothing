@@ -201,10 +201,20 @@ def summarize_cell(results: List[Dict[str, Any]]) -> Dict[str, Any]:
         ("eval_loss", "eval_metrics"),
         ("train_runtime", "train_summary"),
     ):
-        values = [
-            r[source][key] for r in ok_runs
-            if r[source] is not None and key in r[source]
-        ]
+        # The trainer emits these as quoted strings ('eval_wer': '0.1974'),
+        # not numbers, so they have to be coerced before statistics sees
+        # them. Left uncoerced this raised TypeError at the END of a cell,
+        # which is invisible for a single-cell sweep -- every run in it has
+        # already finished -- but kills a multi-cell one after its first
+        # cell, leaving the rest of the grid silently unrun.
+        values = []
+        for r in ok_runs:
+            if r[source] is None or key not in r[source]:
+                continue
+            try:
+                values.append(float(r[source][key]))
+            except (TypeError, ValueError):
+                continue
         if not values:
             continue
         summary[key] = {
