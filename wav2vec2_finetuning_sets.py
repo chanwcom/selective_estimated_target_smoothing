@@ -85,7 +85,8 @@ import numpy as np
 import torch
 from torch.utils.data import DataLoader
 from transformers import (AutoModelForCTC, AutoProcessor,
-                          PreTrainedTokenizer, Trainer, TrainingArguments)
+                          PreTrainedTokenizer, Trainer, TrainerCallback,
+                          TrainingArguments)
 
 # Custom imports
 import repo_config
@@ -403,12 +404,16 @@ class MyCtcTrainer(Trainer):
                 peak_preserving=False, gamma=0.0, peak_capping=False,
                 smoothing_space="label", alpha_mode="fixed",
                 entropy_match_alpha_max=1.0, entropy_match_kappa=1.0,
+                alpha_switch_step=0, alpha_after_switch=0.0,
                 dynamic_batching=False, *args, **kwargs):
         super().__init__(*args, **kwargs)
         # To include the boundary token at the end.
         self.custom_vocab_size = vocab_size
         self.alpha = alpha
         self.beta = beta
+        self.alpha_switch_step = alpha_switch_step
+        self.alpha_after_switch = alpha_after_switch
+        self._switch_announced = False
         self.peak_preserving = peak_preserving
         self.gamma = gamma
         self.peak_capping = peak_capping
@@ -477,6 +482,11 @@ class MyCtcTrainer(Trainer):
         The dict is empty for every other alpha_mode, so this is inert
         unless entropy matching actually ran.
         """
+        as_stats = shc_loss_util.pop_last_active_support_stats()
+        if as_stats:
+            logs = dict(logs)
+            logs.update({k: round(v.item(), 4) for k, v in as_stats.items()})
+
         stats = shc_loss_util.pop_last_entropy_match_stats()
         if stats:
             alpha = stats["alpha"].float()
@@ -501,6 +511,30 @@ class MyCtcTrainer(Trainer):
             })
         super().log(logs, *args, **kwargs)
 
+    def current_alpha(self) -> float:
+        """The smoothing weight for the step being computed right now.
+
+        With --alpha_switch_step the weight is piecewise-constant in
+        training step: `alpha` up to the switch, `alpha_after_switch` from
+        the switch onward. This separates *when* smoothing acts from *how
+        much*: a run that smooths only early (0.1 -> 0.0) tests smoothing
+        as a warmup regularizer whose bias is then annealed away, while
+        the reverse (0.0 -> 0.1) tests it as a late-stage calibrator
+        applied once the alignment has already sharpened. A single fixed
+        alpha cannot distinguish those two.
+        """
+        if self.alpha_switch_step <= 0:
+            return self.alpha
+        if self.state.global_step >= self.alpha_switch_step:
+            if not self._switch_announced:
+                print(f"[alpha-schedule] global_step="
+                      f"{self.state.global_step} >= "
+                      f"{self.alpha_switch_step}: alpha {self.alpha} -> "
+                      f"{self.alpha_after_switch}", flush=True)
+                self._switch_announced = True
+            return self.alpha_after_switch
+        return self.alpha
+
     def compute_loss(self, model, inputs, return_outputs=False, **kwargs):
         with torch.device(inputs["input_values"].device.type):
             target = inputs.pop("labels")
@@ -524,7 +558,7 @@ class MyCtcTrainer(Trainer):
                 logits.log_softmax(2),
                 logits_lengths,
                 self.custom_vocab_size,
-                self.alpha,
+                self.current_alpha(),
                 self.beta,
                 self.peak_preserving,
                 self.gamma,
@@ -539,6 +573,29 @@ class MyCtcTrainer(Trainer):
             return loss, outputs
         else:
             return loss
+
+
+class StopAtStepCallback(TrainerCallback):
+    """Ends training early at `stop_at_step`, leaving a checkpoint there.
+
+    Deliberately NOT the same as setting --max_steps to that value: the LR
+    scheduler is sized from max_steps, so a 1500-step run decays the
+    learning rate to zero by 1500, whereas stopping a 2000-step run at
+    1500 leaves both the weights AND the optimizer/scheduler state exactly
+    where a full 2000-step run would have them. Only the latter can be
+    resumed into a continuation that is a faithful second half of the
+    standard schedule -- which is the whole point of branching two
+    smoothing settings off one shared trunk.
+    """
+
+    def __init__(self, stop_at_step: int):
+        self.stop_at_step = stop_at_step
+
+    def on_step_end(self, args, state, control, **kwargs):
+        if state.global_step >= self.stop_at_step:
+            control.should_save = True
+            control.should_training_stop = True
+        return control
 
 
 def _fmt_float(x: float) -> str:
@@ -592,6 +649,12 @@ def _default_run_name(args: argparse.Namespace) -> str:
         suffix += f"_{args.smoothing_space}space"
     if args.alpha_mode == "entropy_matched_selective":
         suffix += "_shmatch"
+    elif args.alpha_mode == "active_support":
+        # alpha stays meaningful here (it is the per-class rate), so
+        # unlike the solved-for modes the name keeps it and only adds a
+        # tag. Without this branch the mode would fall through to the
+        # "_hmatch" one below and collide with entropy-matched runs.
+        suffix += "_actsup"
     elif args.alpha_mode != "fixed":
         # alpha is solved for, so the alpha/beta already in the name
         # are meaningless; what identifies the run is the clamp and
@@ -601,6 +664,21 @@ def _default_run_name(args: argparse.Namespace) -> str:
             suffix += f"_amax{_fmt_float(args.entropy_match_alpha_max)}"
         if args.entropy_match_kappa < 1.0:
             suffix += f"_kappa{_fmt_float(args.entropy_match_kappa)}"
+    # The alpha already in the name is only the pre-switch value, so
+    # without this a 0.1->0.0 run and a plain alpha=0.1 run land in the
+    # same checkpoint directory and silently overwrite each other.
+    if args.alpha_switch_step > 0:
+        suffix += (f"_sw{args.alpha_switch_step}"
+                   f"a{_fmt_float(args.alpha_after_switch)}")
+    # A trunk that stops early, and each branch resumed off it, otherwise
+    # collide with the plain full-length run at the same alpha.
+    if args.stop_at_step > 0:
+        suffix += f"_stop{args.stop_at_step}"
+    if args.resume_from_checkpoint:
+        resumed_from = os.path.basename(
+            args.resume_from_checkpoint.rstrip("/")).replace("checkpoint-",
+                                                             "")
+        suffix += f"_res{resumed_from}"
     if args.vocab_size is not None:
         if args.peak_preserving:
             return (f"{args.finetune_profile}_shc_{args.max_steps}steps_"
@@ -672,7 +750,8 @@ def parse_args():
              "cwk/loss/pytorch/shc_loss_util.py.")
     parser.add_argument(
         "--alpha_mode", type=str, default="fixed",
-        choices=["fixed", "entropy_matched", "entropy_matched_selective"],
+        choices=["fixed", "entropy_matched", "entropy_matched_selective",
+                 "active_support"],
         help="How the smoothing weight is chosen. 'fixed' (default) "
              "uses --alpha as given. 'entropy_matched' ignores "
              "--alpha/--beta and instead solves, per example, for the "
@@ -686,7 +765,16 @@ def parse_args():
              "H(p) spans all C classes while H(q~) spans the ~3 reachable "
              "ones, H(p) is structurally larger, and early in training it "
              "exceeds log N outright -- alpha then pins at its cap for the "
-             "whole run and the model never learns.")
+             "whole run and the model never learns. "
+             "'active_support' is textbook uniform smoothing restricted "
+             "to the classes reachable at each frame: every active class "
+             "gets alpha/C exactly as it would under uniform smoothing, "
+             "inactive classes get nothing, and only the mass handed out "
+             "(alpha * N_active/C) is taken from the target. Unlike "
+             "beta=1 SETS it holds the per-class RATE fixed rather than "
+             "the total mass, so it needs a much larger alpha to move "
+             "the same amount of probability. Requires "
+             "--smoothing_space=class; --beta is unused.")
     parser.add_argument(
         "--entropy_match_alpha_max", type=float, default=1.0,
         help="Upper clamp on the solved alpha. 1.0 (default) disables "
@@ -697,6 +785,30 @@ def parse_args():
              "(default) is exact matching; lower values repay only "
              "part of the leaked information. Only used with "
              "--alpha_mode=entropy_matched.")
+    parser.add_argument(
+        "--alpha_switch_step", type=int, default=0,
+        help="Training step at which --alpha is replaced by "
+             "--alpha_after_switch for the rest of the run. 0 (default) "
+             "keeps --alpha constant, i.e. every existing run is "
+             "unaffected. Steps strictly below this use --alpha; this "
+             "step and later use --alpha_after_switch.")
+    parser.add_argument(
+        "--alpha_after_switch", type=float, default=None,
+        help="Smoothing weight from --alpha_switch_step onward. Required "
+             "when --alpha_switch_step is set.")
+    parser.add_argument(
+        "--stop_at_step", type=int, default=0,
+        help="Stop training at this step, keeping the --max_steps LR "
+             "schedule intact (see StopAtStepCallback). Pair with "
+             "--save_steps equal to it to leave a resumable checkpoint "
+             "there. 0 (default) trains the full schedule.")
+    parser.add_argument(
+        "--resume_from_checkpoint", type=str, default=None,
+        help="Checkpoint directory to continue from, e.g. a trunk run's "
+             "checkpoint-1500. Weights, optimizer and LR scheduler are "
+             "all restored, so two runs resumed from one checkpoint with "
+             "different --alpha differ only in the smoothing applied over "
+             "the remaining steps.")
 
     # --- Run naming / output location -------------------------------------
     parser.add_argument(
@@ -882,6 +994,14 @@ def parse_args():
             "--dynamic_batching requires --max_batch_audio_len (there's no "
             "sane default -- it depends on your GPU memory and model).")
 
+    if args.alpha_switch_step > 0 and args.alpha_after_switch is None:
+        parser.error(
+            "--alpha_switch_step requires --alpha_after_switch (leaving it "
+            "implicit would make the run name -- and so the checkpoint "
+            "directory -- ambiguous).")
+    if args.alpha_after_switch is None:
+        args.alpha_after_switch = 0.0
+
     if args.run_name is None:
         args.run_name = _default_run_name(args)
         print(f"[info] --run_name not given; using auto-generated name: "
@@ -982,6 +1102,12 @@ def main():
         eval_accumulation_steps=args.eval_accumulation_steps,
         save_steps=args.save_steps,
         eval_steps=args.eval_steps,
+        # The training stream is a shuffled WebDataset pipeline with no
+        # length, so Trainer's resume path cannot seek into it -- it would
+        # replay 1500 steps of batches just to discard them. Both branches
+        # off a trunk skip identically, so the comparison between them is
+        # unaffected.
+        ignore_data_skip=bool(args.resume_from_checkpoint),
         logging_steps=args.logging_steps,
         load_best_model_at_end=args.load_best_model_at_end,
         metric_for_best_model="wer",
@@ -1012,10 +1138,15 @@ def main():
         alpha_mode=args.alpha_mode,
         entropy_match_alpha_max=args.entropy_match_alpha_max,
         entropy_match_kappa=args.entropy_match_kappa,
+        alpha_switch_step=args.alpha_switch_step,
+        alpha_after_switch=args.alpha_after_switch,
         dynamic_batching=args.dynamic_batching
     )
 
-    trainer.train()
+    if args.stop_at_step > 0:
+        trainer.add_callback(StopAtStepCallback(args.stop_at_step))
+
+    trainer.train(resume_from_checkpoint=args.resume_from_checkpoint)
 
 
 if __name__ == "__main__":
