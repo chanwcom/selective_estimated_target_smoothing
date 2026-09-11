@@ -405,6 +405,7 @@ class MyCtcTrainer(Trainer):
                 smoothing_space="label", alpha_mode="fixed",
                 entropy_match_alpha_max=1.0, entropy_match_kappa=1.0,
                 alpha_switch_step=0, alpha_after_switch=0.0,
+                fas_eps=1e-10,
                 dynamic_batching=False, *args, **kwargs):
         super().__init__(*args, **kwargs)
         # To include the boundary token at the end.
@@ -421,6 +422,7 @@ class MyCtcTrainer(Trainer):
         self.alpha_mode = alpha_mode
         self.entropy_match_alpha_max = entropy_match_alpha_max
         self.entropy_match_kappa = entropy_match_kappa
+        self.fas_eps = fas_eps
         self.dynamic_batching = dynamic_batching
 
     def get_train_dataloader(self) -> DataLoader:
@@ -486,6 +488,11 @@ class MyCtcTrainer(Trainer):
         if as_stats:
             logs = dict(logs)
             logs.update({k: round(v.item(), 4) for k, v in as_stats.items()})
+
+        fas_stats = shc_loss_util.pop_last_floored_active_support_stats()
+        if fas_stats:
+            logs = dict(logs)
+            logs.update({k: round(float(v), 4) for k, v in fas_stats.items()})
 
         stats = shc_loss_util.pop_last_entropy_match_stats()
         if stats:
@@ -567,6 +574,7 @@ class MyCtcTrainer(Trainer):
                 self.alpha_mode,
                 self.entropy_match_alpha_max,
                 self.entropy_match_kappa,
+                self.fas_eps,
             ).mean()
 
         if return_outputs:
@@ -649,6 +657,12 @@ def _default_run_name(args: argparse.Namespace) -> str:
         suffix += f"_{args.smoothing_space}space"
     if args.alpha_mode == "entropy_matched_selective":
         suffix += "_shmatch"
+    elif args.alpha_mode == "floored_active_support":
+        # alpha and beta are already in the name's prefix, and both are live
+        # knobs here (unlike active_support, which ignores beta). Only the
+        # activity threshold is new, and two cells differing solely by it
+        # would otherwise share one checkpoint directory.
+        suffix += f"_fas_eps{_fmt_float(args.fas_eps)}"
     elif args.alpha_mode == "active_support":
         # alpha stays meaningful here (it is the per-class rate), so
         # unlike the solved-for modes the name keeps it and only adds a
@@ -751,7 +765,7 @@ def parse_args():
     parser.add_argument(
         "--alpha_mode", type=str, default="fixed",
         choices=["fixed", "entropy_matched", "entropy_matched_selective",
-                 "active_support"],
+                 "active_support", "floored_active_support"],
         help="How the smoothing weight is chosen. 'fixed' (default) "
              "uses --alpha as given. 'entropy_matched' ignores "
              "--alpha/--beta and instead solves, per example, for the "
@@ -785,6 +799,17 @@ def parse_args():
              "(default) is exact matching; lower values repay only "
              "part of the leaked information. Only used with "
              "--alpha_mode=entropy_matched.")
+    parser.add_argument(
+        "--fas_eps", type=float, default=1e-10,
+        help="Activity threshold for --alpha_mode=floored_active_support: a "
+             "class is active when its target probability EXCEEDS this. The "
+             "default 1e-10 sits below the smallest non-zero value the "
+             "scattered posterior produces (measured 4.7e-10 to 9.3e-10), "
+             "so it means 'every class the alignment can reach'. Raising it "
+             "weakens the smoothing rather than merely reinterpreting it -- "
+             "1e-6 costs about 3 active classes and 3.1e-3 about 8, and the "
+             "latter measured 0.2119 WER against 0.1964 at 1e-6. Ignored by "
+             "every other alpha_mode.")
     parser.add_argument(
         "--alpha_switch_step", type=int, default=0,
         help="Training step at which --alpha is replaced by "
@@ -1140,6 +1165,7 @@ def main():
         entropy_match_kappa=args.entropy_match_kappa,
         alpha_switch_step=args.alpha_switch_step,
         alpha_after_switch=args.alpha_after_switch,
+        fas_eps=args.fas_eps,
         dynamic_batching=args.dynamic_batching
     )
 
