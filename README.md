@@ -10,6 +10,20 @@ sweep orchestrators, and their logs.
 Steps 1–5 are one-time. Step 6 is per-shell — repeat it in every new
 terminal before running anything below.
 
+**Budget ~12 GB of disk for the environment** — the CUDA wheels in step 2
+dominate it. Two more directories need room on top of that and both default
+to local disk, which is easy to miss on a shared machine: pip's download
+cache (`~/.cache/pip`) and its unpack scratch (`TMPDIR`, usually `/tmp`).
+If either filesystem is tight, point them somewhere with space before
+installing, or the install dies partway through with
+`OSError: [Errno 28] No space left on device` — leaving an environment that
+looks present but has no `torch` in it:
+
+```bash
+export PIP_CACHE_DIR=/somewhere/with/space/pipcache
+export TMPDIR=/somewhere/with/space/tmp
+```
+
 ### 1. Create and activate the conda environment
 
 ```bash
@@ -23,13 +37,33 @@ match the system Python. If `conda` isn't on your PATH, install Miniconda
 first — or use `python3 -m venv` instead, since nothing here depends on
 conda specifically.
 
+`--name` puts the environment in the first entry of conda's `envs_dirs`,
+which is not always the `envs/` of the conda you invoked — with more than
+one Miniconda on the machine it often lands in `~/.conda/envs` instead.
+That matters because `PYTHON_BIN` in step 5 is a literal path, so the two
+can disagree and the queue scripts then run the wrong interpreter. Check
+where it actually went, and make `PYTHON_BIN` match:
+
+```bash
+conda env list          # the path next to py3_12_sets is the one to use
+```
+
+Either point `PYTHON_BIN` at that path, or create the environment at an
+explicit location with `conda create -p <path>` instead of `--name`. If the
+environment has to live somewhere conda won't name (a different filesystem,
+say), symlinking it into an `envs_dirs` entry keeps `conda activate
+py3_12_sets` working by name.
+
 ### 2. Install PyTorch and torchaudio
 
-Check your CUDA version with `nvidia-smi`, then pick the matching command
-from https://pytorch.org/get-started/locally/. The RTX 5090s on this machine
-are Blackwell (sm_120) and require a **CUDA 12.8+** build — an older wheel
+Check which GPU you are on and its CUDA version with `nvidia-smi`, then pick
+the matching command from https://pytorch.org/get-started/locally/. This
+matters per machine, not once: the clone is shared (see step 5), so whatever
+the last person installed says nothing about what yours needs. Blackwell
+cards (RTX 5090, sm_120) require a **CUDA 12.8+** build — an older wheel
 installs cleanly and then fails at runtime with "no kernel image is
-available for execution on the device":
+available for execution on the device". The `cu128` build below also covers
+Ada (RTX 4090, sm_89), so it is a safe default across both:
 
 ```bash
 pip install torch torchaudio torchcodec --index-url https://download.pytorch.org/whl/cu128
@@ -92,9 +126,9 @@ instead, which is why sourcing `set_config.sh` isn't optional.
 
 ### 5. Point the repo at this machine's paths
 
-**This is the only file you edit per machine.** No absolute path is baked
-into any tracked script, so a fresh `git clone` elsewhere needs this step
-and nothing else:
+**This is the only file that carries machine paths.** No absolute path is
+baked into any tracked script, so a fresh `git clone` elsewhere needs this
+step and nothing else:
 
 ```bash
 cp config.local.sh.example config.local.sh
@@ -110,11 +144,27 @@ It defines four values:
 | `CHECKPOINT_TOP_DIR` | Where training writes checkpoints. Prefer a local disk over NFS — these are written often enough that network latency shows up in step time |
 | `PYTHON_BIN` | `bin/` of the conda env from step 1, for `queue_*.sh` — a `nohup`-style launch doesn't inherit an activated env. Leave empty to use whatever `python` is on PATH |
 
-`config.local.sh` is gitignored, so each machine keeps its own and nothing
-here conflicts across clones. `set_config.sh` sources it, and the Python
-scripts read the same values through `repo_config.py`, which is what makes
-the `--db_top_dir` / `--resource_top_dir` / `--checkpoint_top_dir` defaults
-correct without anyone passing them.
+`config.local.sh` is gitignored, so it never travels with a commit.
+`set_config.sh` sources it, and the Python scripts read the same values
+through `repo_config.py`, which is what makes the `--db_top_dir` /
+`--resource_top_dir` / `--checkpoint_top_dir` defaults correct without
+anyone passing them.
+
+**Gitignored is not the same as per-machine here.** This working tree lives
+on a NAS mount and is used from more than one machine as a single clone, not
+one clone per machine — so there is exactly one `config.local.sh` and every
+machine reads it. It survives that only because every value is either a
+shared path or written relative to `$HOME`, which each machine expands for
+itself. **Keep it that way:** a machine-specific absolute path written here
+will silently point the other machines somewhere wrong. If you need a
+different value for one run or one machine, override the variable in that
+shell after sourcing, or pass the corresponding flag, instead of editing
+this file:
+
+```bash
+source set_config.sh
+export CHECKPOINT_TOP_DIR=/somewhere/else   # this shell only
+```
 
 ### 6. Per-shell environment
 
@@ -142,6 +192,7 @@ python -c "from common import sample_util; print('common ok')"
 python -c "from torchcodec.decoders import AudioDecoder; print('audio decode ok')"
 python -c "from torchaudio.models import decoder; decoder.ctc_decoder; print('decoder ok')"
 python -c "import repo_config, os; [print(('ok  ' if os.path.isdir(p) else 'MISSING '), p) for p in (repo_config.DB_TOP_DIR, repo_config.RESOURCE_TOP_DIR, repo_config.CHECKPOINT_TOP_DIR)]"
+python -c "import sys, numpy, transformers; [print(('env ' if m.__file__.startswith(sys.prefix) else 'USER-SITE '), m.__name__, m.__file__) for m in (numpy, transformers)]"
 ```
 
 If the third fails, `set_config.sh` wasn't sourced in this shell.
@@ -153,8 +204,30 @@ here costs a second; discovering it from a DataLoader worker traceback after
 the model has already loaded does not.
 
 If the fifth fails, `flashlight-text` is missing — training still works,
-only beam-search inference is affected. The last one checks that the paths
-in `config.local.sh` actually exist on this machine.
+only beam-search inference is affected. The sixth checks that the paths in
+`config.local.sh` actually exist on this machine; `CHECKPOINT_TOP_DIR`
+reading `MISSING` is expected if you are overriding it per-shell as step 5
+describes.
+
+The last one catches a quieter problem: `~/.local/lib/pythonX.Y/
+site-packages` is on `sys.path` ahead of the environment, so a package
+installed there once with `pip install --user` shadows the environment's
+copy in *every* environment on that machine. `pip install` then reports
+"Requirement already satisfied" and installs nothing, and the run silently
+uses that version instead. Anything printing `USER-SITE` is coming from
+there.
+
+The fix is to install it into the environment, forcing past the shadow:
+
+```bash
+pip install --ignore-installed numpy      # and any other USER-SITE line
+```
+
+Setting `PYTHONNOUSERSITE=1` on its own is not a fix for this — it hides
+user site packages, and since step 3's `pip install` skipped the package as
+already satisfied, the import then fails outright with `ModuleNotFoundError`
+rather than falling back to an environment copy that was never installed.
+Use it only after the packages really are in the environment.
 
 Long jobs (anything below can run for hours to days) should be started
 inside `tmux` so they survive a dropped SSH connection:
