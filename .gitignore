@@ -17,3 +17,9 @@ wandb/
 # it would put one machine's absolute paths in everyone else's clone.
 config.local.sh
 .claude/settings.local.json
+
+# stdout of detached queue chains (nohup/setsid wrappers). Pure operational
+# noise -- the per-cell logs and summary.json carry everything worth
+# keeping, and these files exist only to catch a launcher's own errors.
+chain_*.out
+switch_to_4lane.*

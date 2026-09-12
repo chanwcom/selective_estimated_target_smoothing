@@ -129,7 +129,26 @@ _DEFAULT_RESOURCE_TOP_DIR = repo_config.RESOURCE_TOP_DIR
 _GPU_PROFILES: Dict[str, Dict[str, Any]] = {
     "4090": dict(
         per_device_train_batch_size=24,
-        per_device_eval_batch_size=24,
+        # 12, not 24, because eval is the memory peak of a run, not
+        # training. Training batches are length-budgeted at
+        # --max_batch_audio_len (400 s of audio); eval is plain fixed-count
+        # batching with no length budget at all, so 24 x the 29.6 s cap
+        # allocates 710 s worth -- 1.78x the training peak. Measured on
+        # both test-clean and test-other; 12 puts the worst batch at 355 s,
+        # just under training.
+        #
+        # That matters because two runs now share a GPU, and lanes started
+        # together evaluate together (eval_steps is the same for both), so
+        # the two eval peaks coincide. One such collision OOM'd an ASAP
+        # 10hr cell at step 3500 of 4000 -- 2 h 05 m lost, with no
+        # checkpoint to resume from since save_steps == max_steps.
+        #
+        # Eval batch size does not affect WER: it only changes how many
+        # utterances are batched per forward pass, and never touches the
+        # training path. Cells measured at 24 and at 12 stay comparable,
+        # unlike a change to --max_batch_audio_len or
+        # --dataloader_num_workers.
+        per_device_eval_batch_size=12,
         learning_rate=1e-4,
         gradient_accumulation_steps=2,
         load_best_model_at_end=False,
@@ -405,7 +424,7 @@ class MyCtcTrainer(Trainer):
                 smoothing_space="label", alpha_mode="fixed",
                 entropy_match_alpha_max=1.0, entropy_match_kappa=1.0,
                 alpha_switch_step=0, alpha_after_switch=0.0,
-                fas_eps=1e-10,
+                fas_eps=1e-10, asap_eps=1e-5,
                 dynamic_batching=False, *args, **kwargs):
         super().__init__(*args, **kwargs)
         # To include the boundary token at the end.
@@ -423,6 +442,7 @@ class MyCtcTrainer(Trainer):
         self.entropy_match_alpha_max = entropy_match_alpha_max
         self.entropy_match_kappa = entropy_match_kappa
         self.fas_eps = fas_eps
+        self.asap_eps = asap_eps
         self.dynamic_batching = dynamic_batching
 
     def get_train_dataloader(self) -> DataLoader:
@@ -493,6 +513,11 @@ class MyCtcTrainer(Trainer):
         if fas_stats:
             logs = dict(logs)
             logs.update({k: round(float(v), 4) for k, v in fas_stats.items()})
+
+        asap_stats = shc_loss_util.pop_last_asap_stats()
+        if asap_stats:
+            logs = dict(logs)
+            logs.update({k: round(float(v), 4) for k, v in asap_stats.items()})
 
         stats = shc_loss_util.pop_last_entropy_match_stats()
         if stats:
@@ -575,6 +600,7 @@ class MyCtcTrainer(Trainer):
                 self.entropy_match_alpha_max,
                 self.entropy_match_kappa,
                 self.fas_eps,
+                self.asap_eps,
             ).mean()
 
         if return_outputs:
@@ -663,6 +689,10 @@ def _default_run_name(args: argparse.Namespace) -> str:
         # activity threshold is new, and two cells differing solely by it
         # would otherwise share one checkpoint directory.
         suffix += f"_fas_eps{_fmt_float(args.fas_eps)}"
+    elif args.alpha_mode == "asap":
+        # Same reasoning as the FAS branch: alpha and beta are already in
+        # the prefix, and the threshold is what else distinguishes a cell.
+        suffix += f"_asap_eps{_fmt_float(args.asap_eps)}"
     elif args.alpha_mode == "active_support":
         # alpha stays meaningful here (it is the per-class rate), so
         # unlike the solved-for modes the name keeps it and only adds a
@@ -765,7 +795,7 @@ def parse_args():
     parser.add_argument(
         "--alpha_mode", type=str, default="fixed",
         choices=["fixed", "entropy_matched", "entropy_matched_selective",
-                 "active_support", "floored_active_support"],
+                 "active_support", "floored_active_support", "asap"],
         help="How the smoothing weight is chosen. 'fixed' (default) "
              "uses --alpha as given. 'entropy_matched' ignores "
              "--alpha/--beta and instead solves, per example, for the "
@@ -810,6 +840,20 @@ def parse_args():
              "1e-6 costs about 3 active classes and 3.1e-3 about 8, and the "
              "latter measured 0.2119 WER against 0.1964 at 1e-6. Ignored by "
              "every other alpha_mode.")
+    parser.add_argument(
+        "--asap_eps", type=float, default=1e-5,
+        help="Activity threshold for --alpha_mode=asap, applied to the "
+             "ACOUSTIC posterior softmax(logits) rather than to the "
+             "alignment posterior. It is NOT interchangeable with "
+             "--fas_eps: a softmax has no structural zeros, so FAS's "
+             "1e-10 would mark all C classes active and collapse the "
+             "method to textbook uniform LS. Measured mean N_active on a "
+             "trained 32-class model -- 1e-2: 2.1, 1e-3: 3.5, 1e-4: 5.7, "
+             "1e-5: 22.2, 1e-6: 31.3, 1e-7: 32.0. Note the same cutoff "
+             "selects very differently on the two posteriors: at 1e-5 the "
+             "alignment rule keeps 6.8 percent of classes and the "
+             "acoustic rule 69.5 percent, so matched eps is not matched "
+             "smoothing strength. Ignored by every other alpha_mode.")
     parser.add_argument(
         "--alpha_switch_step", type=int, default=0,
         help="Training step at which --alpha is replaced by "
@@ -1166,6 +1210,7 @@ def main():
         alpha_switch_step=args.alpha_switch_step,
         alpha_after_switch=args.alpha_after_switch,
         fas_eps=args.fas_eps,
+        asap_eps=args.asap_eps,
         dynamic_batching=args.dynamic_batching
     )
 
