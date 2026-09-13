@@ -401,7 +401,7 @@ def parse_args():
         help="Decoding strategy: HF pipeline() greedy CTC decoding, or "
              "torchaudio CTC beam search.")
     parser.add_argument(
-        "--beam_size", type=int, default=50,
+        "--beam_size", type=int, default=40,
         help="Beam size for --decoder=beam_search. Ignored (no effect) "
              "for --decoder=pipeline, which always decodes greedily.")
     parser.add_argument(
