@@ -187,7 +187,13 @@ _FINETUNE_PROFILES: Dict[str, Dict[str, Any]] = {
     "libri_speech_clean_100hr": dict(
         train_subdir="librispeech/webdataset/train-clean-100",
         warmup_steps=1000,
-        max_steps=8000,
+        # 8000 stopped while the curve was still moving: over the last 4000
+        # steps the baseline mean fell 0.0728 -> 0.0659 across three seeds,
+        # and the final 500 still gained 0.0003. max_steps also sets the LR
+        # decay horizon, so this is a different schedule, not 2000 extra
+        # steps on the old one -- runs at the two values are not comparable
+        # and the step count is in the run name to keep them apart.
+        max_steps=10000,
         eval_steps=500,
     ),
     # Full LibriSpeech (train-clean-100 + train-clean-360 + train-other-500,
