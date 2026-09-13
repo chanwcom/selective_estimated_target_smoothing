@@ -15,10 +15,42 @@ This process has 9.56 GiB in use. Process <other> has 20.26 GiB in use.
 Both OOMs looked identical: the process that died was using only ~9.5 GiB
 and asking for ~2.4 GiB more, while its neighbour sat on 19-20 GiB.
 
+## Three numbers, and which one the settings act on
+
+| term | what it is | how to read it |
+|---|---|---|
+| **allocated** | bytes held by tensors that are alive right now | `torch.cuda.memory_allocated()` |
+| **reserved** | bytes the allocator has taken from the driver: allocated **plus** freed blocks it is keeping for reuse | `torch.cuda.memory_reserved()` |
+| **nvidia-smi** | reserved plus the CUDA context (~580 MiB) and library workspaces | per-process column |
+
+Reserved only grows when a request cannot be served out of an existing
+cached block; then the allocator calls `cudaMalloc` for a new segment. It
+does not shrink when tensors are freed. Measured, with a 0.10 cap on a
+32109 MiB card:
+
+```
+                          allocated  reserved   cached   nvidia-smi
+context only                      0         2        2          582
+allocate a 1.0 GB tensor        954       962        8         1542
+free it                           0       962      962         1542   <- not returned
+allocate 0.3 GB                 286       962      676         1542   <- reuses cache
+allocate 2.0 GB                1907      1922       15         2502   <- tops up only
+empty_cache()                     0         0        0          580
+```
+
+So **reserved is a high-water mark**: the most this process has ever needed
+at once, plus fragmentation. That is the quantity that ratchets.
+
+`set_per_process_memory_fraction(f)` caps **reserved**, not physical memory.
+Asking for 3.73 GiB under a 3211 MiB cap raised OOM while 30.77 GiB of the
+card was still free. And `garbage_collection_threshold` measures reserved
+against **that cap** -- without a cap its denominator is the whole card, so
+it does nothing until 22 GiB.
+
 ## Cause
 
-PyTorch's caching allocator never returns memory to the driver. A process's
-reservation is therefore its own **historical peak**, not what it currently
+PyTorch's caching allocator never returns memory to the driver. A process's reserved
+figure is therefore its own **historical peak**, not what it currently
 needs. Two things follow:
 
 - Two runs never have to peak at the same moment to collide. Each one
