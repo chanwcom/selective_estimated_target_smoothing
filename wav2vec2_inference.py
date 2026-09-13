@@ -275,6 +275,24 @@ def build_beam_search_decoder(processor, beam_size: int = 50):
     vocab = processor.tokenizer.get_vocab()
     tokens = sorted(vocab, key=lambda token: vocab[token])
 
+    # NOTE: torchaudio's ctc_decoder is built with log_add=True (see
+    # build_beam_search_decoder), which tells the underlying Flashlight
+    # decoder to merge equivalent hypotheses via logaddexp instead of the
+    # default Viterbi-style max (torchaudio's `log_add` docstring: "whether
+    # or not to use logadd when merging hypotheses (Default: False)" --
+    # https://docs.pytorch.org/audio/main/generated/torchaudio.models.decoder.ctc_decoder.html.
+    # That logaddexp merge is only mathematically correct -- i.e. it only
+    # actually sums probability mass, rather than summing nonsense -- if
+    # the values being merged are real log-probabilities. So the input here
+    # must be log_softmax(logits), not raw logits and not softmax(logits).
+    # (torchaudio's own `emissions` docs are silent on which of these is
+    # expected -- see CTCDecoder.__call__ at
+    # https://docs.pytorch.org/audio/2.7.0/generated/torchaudio.models.decoder.CTCDecoder.html#call
+    # so this is confirmed empirically, not from the docs: with
+    # log_add=True, using log_softmax here reproduces the WER improvement
+    # from a wider beam that tf.nn.ctc_beam_search_decoder shows; raw
+    # logits/softmax do not, regardless of log_add.)
+
     # torchaudio's ctc_decoder requires `sil_token` to be an entry that
     # literally exists in `tokens` (it does tokens_dict.get_index(sil_token)
     # internally). The default "|" only exists in the *original* wav2vec2
@@ -311,6 +329,7 @@ def build_beam_search_decoder(processor, beam_size: int = 50):
         beam_size=beam_size,
         blank_token=processor.tokenizer.pad_token,
         sil_token=sil_token,
+        log_add=True,
     )
     return beam_decoder, synthetic_sil_token_id
 
