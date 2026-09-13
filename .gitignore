@@ -23,3 +23,8 @@ config.local.sh
 # keeping, and these files exist only to catch a launcher's own errors.
 chain_*.out
 switch_to_4lane.*
+
+# Decode-watcher stdout. decode.jsonl next to it is the actual result and
+# stays tracked; this is just the loop's console output.
+inference_logs_*/watch.log
+inference_logs_*/run.log
