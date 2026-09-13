@@ -26,6 +26,24 @@ FAS_EPS=${FAS_EPS:-1e-10}
 MAX_BATCH_AUDIO_LEN=${MAX_BATCH_AUDIO_LEN:-6400000}
 MAX_SAMPLE_AUDIO_LEN=${MAX_SAMPLE_AUDIO_LEN:-480000}
 
+# Two runs share a GPU. The caching allocator never hands memory back, so
+# each process's reservation is its own historical peak; a run that meets a
+# large batch early keeps that share for the rest of its life and the other
+# one starves. Both 100hr OOMs looked identical: the dying process held
+# 9.5 GiB and asked for 2.4 more while its neighbour sat on 19-20 GiB of a
+# 31.4 GiB card. 0.46 caps each side at about 15.0 GiB, which is well above
+# the 11.9 GiB either victim actually needed.
+#
+# This is not a guarantee. A batch whose live activations exceed the cap now
+# fails deterministically rather than starving its neighbour, which is why
+# SAVE_STEPS is set below: a failure should cost one checkpoint interval,
+# not the whole run. Nothing here changes a number the run produces --
+# allocator policy and checkpoint frequency only.
+GPU_MEMORY_FRACTION=${GPU_MEMORY_FRACTION:-0.46}
+SAVE_STEPS=${SAVE_STEPS:-2000}
+export PYTORCH_CUDA_ALLOC_CONF=${PYTORCH_CUDA_ALLOC_CONF_OVERRIDE:-\
+expandable_segments:True,garbage_collection_threshold:0.7}
+
 python wav2vec2_finetuning_sets.py \
     --alpha=$ALPHA \
     --beta=$BETA \
@@ -39,4 +57,6 @@ python wav2vec2_finetuning_sets.py \
     --max_sample_audio_len $MAX_SAMPLE_AUDIO_LEN \
     --dataloader_num_workers 4 \
     --dataloader_persistent_workers \
+    --gpu_memory_fraction $GPU_MEMORY_FRACTION \
+    --save_steps $SAVE_STEPS \
     --seed $SEED

@@ -948,6 +948,25 @@ def parse_args():
     parser.add_argument("--warmup_steps", type=int, default=None)
     parser.add_argument("--max_steps", type=int, default=None)
     parser.add_argument("--save_steps", type=int, default=None)
+    parser.add_argument(
+        "--gpu_memory_fraction", type=float, default=0.0,
+        help="Cap this process at that fraction of the card, via "
+             "torch.cuda.set_per_process_memory_fraction. 0 (default) "
+             "leaves PyTorch unconstrained, which is the historical "
+             "behaviour. Set it when two runs share a GPU: the caching "
+             "allocator never returns memory to the driver, so each "
+             "process's reservation is its own historical peak, and a run "
+             "that happens to meet a large batch early locks that share "
+             "away for good. Both 100hr OOMs had the same shape -- the "
+             "dying process was using only 9.5 GiB and asking for 2.4 "
+             "more, while its neighbour sat on 19-20 GiB of a 31.4 GiB "
+             "card. A cap makes that impossible. It does NOT make OOM "
+             "impossible: a batch whose live activations exceed the cap "
+             "now fails deterministically instead of starving its "
+             "neighbour, so pair this with a --save_steps small enough "
+             "that a failure costs one checkpoint interval, not the run. "
+             "Allocator policy only -- it cannot change any number the "
+             "run produces.")
     parser.add_argument("--eval_steps", type=int, default=None)
     parser.add_argument("--logging_steps", type=int, default=25)
     parser.add_argument("--load_best_model_at_end", type=bool, default=None)
@@ -1057,6 +1076,12 @@ def parse_args():
     # meaning sample_util.make_dataset() reads 'shard-*.tar' directly under
     # train_top_dir as before.
     args.train_shard_subdirs = finetune_profile.get("train_shard_subdirs")
+
+    if args.gpu_memory_fraction > 0 and torch.cuda.is_available():
+        torch.cuda.set_per_process_memory_fraction(args.gpu_memory_fraction)
+        _total = torch.cuda.get_device_properties(0).total_memory / 2 ** 20
+        print(f"[mem] capped at {args.gpu_memory_fraction:.3f} of "
+              f"{_total:.0f} MiB = {_total * args.gpu_memory_fraction:.0f} MiB")
 
     if args.dynamic_batching and args.max_batch_audio_len is None:
         parser.error(
