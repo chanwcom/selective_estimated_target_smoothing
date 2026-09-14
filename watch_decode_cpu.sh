@@ -1,5 +1,5 @@
 #!/bin/bash
-# Decodes every 10000-step checkpoint as it appears, on CPU only.
+# Decodes every 12000-step checkpoint as it appears, on CPU only.
 #
 # Training owns GPU 0 and 1 and must never wait for anything here, so this
 # never touches a GPU: CUDA_VISIBLE_DEVICES is emptied, --device cpu is
@@ -15,7 +15,7 @@ export PYTHONPATH="${PYTHONPATH:-}"; source ./set_config.sh >/dev/null 2>&1
 [ -n "${PYTHON_BIN:-}" ] && export PATH="$PYTHON_BIN:$PATH"
 export CUDA_VISIBLE_DEVICES=""
 export OMP_NUM_THREADS=8 MKL_NUM_THREADS=8
-OUT=inference_logs_10k
+OUT=inference_logs_12k
 N=/mnt/synology_nas_00/chanwcom/models
 PAR=${PAR:-4}
 touch $OUT/decode.jsonl
@@ -37,7 +37,7 @@ decode() {
 
 while true; do
   running=0
-  for d in $N/u24/*100hr_shc_10000steps*/checkpoint-10000; do
+  for d in $N/u24/*100hr_shc_12000steps*/checkpoint-12000; do
     [ -d "$d" ] || continue
     nm=$(basename $(dirname $d))
     a=$(echo $nm|grep -oE 'alpha_[0-9p]+'|sed 's/alpha_//;s/p/./')

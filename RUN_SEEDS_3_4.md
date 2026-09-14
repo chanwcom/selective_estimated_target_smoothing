@@ -1,4 +1,4 @@
-# Running seeds 3 and 4 of the 10000-step 100hr sweep
+# Running seeds 3 and 4 of the 12000-step 100hr sweep
 
 `u24` is running seeds **0, 1, 2**. This describes seeds **3 and 4** on
 another machine. The two halves share a NAS clone of this repo, so the code
@@ -10,7 +10,7 @@ directories, so nothing collides.
 
 | | |
 |---|---|
-| profile | `libri_speech_clean_100hr` — **10000 steps**, warmup 1000, eval every 500 |
+| profile | `libri_speech_clean_100hr` — **12000 steps**, warmup 1000, eval every 500 |
 | FAS | `--beta 0.0`, `--fas_eps 1e-10` |
 | textbook LS | `--beta 1.0` (bit-identical to uniform LS; see `apply_floored_active_support_smoothing`) |
 | alpha | 0.05, 0.10, 0.15, 0.20, 0.25, 0.30 |
@@ -24,7 +24,7 @@ directories, so nothing collides.
 cd <this repo>
 git pull                      # only if this checkout is NOT the NAS one
 grep -A6 'libri_speech_clean_100hr' wav2vec2_finetuning_sets.py | grep max_steps
-#   -> max_steps=10000
+#   -> max_steps=12000
 grep 'CHECKPOINT_TOP_DIR' config.local.sh
 #   -> must be this machine's own path; /mnt/.../models/$(hostname) keeps
 #      it on the NAS without colliding with u24
@@ -39,7 +39,7 @@ together.
 
 **Every path below is suffixed with `$(hostname)` on purpose.** This repo is
 a single clone on the NAS and both machines run out of it, so a bare
-`grid_logs_10k_fas_A` would be the *same directory* on both --
+`grid_logs_12k_fas_A` would be the *same directory* on both --
 `run_train_grid_seed.py` read-modify-writes `summary.json` in it and the two
 machines would clobber each other's. The chain stdout files collide the same
 way.
@@ -50,12 +50,12 @@ H=$(hostname)
 Q(){ echo "GPU=$1 ALPHAS=\"$2\" BETAS=\"$3\" SEEDS=\"$4\" FAS_EPS=1e-10 \
 PROFILE=libri_speech_clean_100hr LOG_DIR=$5 bash queue_fas.sh"; }
 L(){ setsid bash -c "export PYTHONPATH=\"\${PYTHONPATH:-}\"; $2" \
-       > "chain_10k_$1_$H.out" 2>&1 < /dev/null & }
+       > "chain_12k_$1_$H.out" 2>&1 < /dev/null & }
 
-L A "$(for S in 3 4; do Q 0 "0.05 0.10 0.15" 0.0 $S grid_logs_10k_fas_A_$H; done)"
-L B "$(for S in 3 4; do Q 1 "0.20 0.25 0.30" 0.0 $S grid_logs_10k_fas_B_$H; done)"
-L C "$(for S in 3 4; do Q 0 "0.05 0.10 0.15" 1.0 $S grid_logs_10k_ls_C_$H;  done)"
-L D "$(for S in 3 4; do Q 1 "0.20 0.25 0.30" 1.0 $S grid_logs_10k_ls_D_$H;  done)"
+L A "$(for S in 3 4; do Q 0 "0.05 0.10 0.15" 0.0 $S grid_logs_12k_fas_A_$H; done)"
+L B "$(for S in 3 4; do Q 1 "0.20 0.25 0.30" 0.0 $S grid_logs_12k_fas_B_$H; done)"
+L C "$(for S in 3 4; do Q 0 "0.05 0.10 0.15" 1.0 $S grid_logs_12k_ls_C_$H;  done)"
+L D "$(for S in 3 4; do Q 1 "0.20 0.25 0.30" 1.0 $S grid_logs_12k_ls_D_$H;  done)"
 ```
 
 Each lane does seed 3 fully, then seed 4, so **seed 3 completes first**.
@@ -99,19 +99,19 @@ costs ~30% speed and changes no result.
 
 Decode on CPU so training never queues behind it. **`watch_decode_cpu.sh`
 hardcodes `u24` in its checkpoint glob (line 40) and writes to
-`inference_logs_10k/`** -- both need changing before it will see anything
+`inference_logs_12k/`** -- both need changing before it will see anything
 here, and the output dir needs a per-machine name for the same
 shared-clone reason as the log dirs:
 
 ```bash
 H=$(hostname)
-sed -e "s|\$N/u24/|\$N/$H/|" -e "s|^OUT=.*|OUT=inference_logs_10k_$H|" \
+sed -e "s|\$N/u24/|\$N/$H/|" -e "s|^OUT=.*|OUT=inference_logs_12k_$H|" \
     watch_decode_cpu.sh > watch_decode_cpu_$H.sh
-mkdir -p inference_logs_10k_$H
-setsid bash watch_decode_cpu_$H.sh > inference_logs_10k_$H/watch.log 2>&1 &
+mkdir -p inference_logs_12k_$H
+setsid bash watch_decode_cpu_$H.sh > inference_logs_12k_$H/watch.log 2>&1 &
 ```
 
-It watches for `checkpoint-10000`, decodes each with greedy (`pipeline`) and
+It watches for `checkpoint-12000`, decodes each with greedy (`pipeline`) and
 beam=40 on both test splits, and appends to `decode.jsonl`. It skips any
 (tag, split, decoder) already in that file, so restarting it is free. `PAR=4`
 decodes run at once; `OMP_NUM_THREADS=8` keeps it clear of the four training
@@ -151,4 +151,4 @@ quantity, not as a fixed number.
 **8000-step results are a different experiment.** `max_steps` also sets the
 LR decay horizon, so the 8000-step 100hr runs are not 2000 steps short of
 these -- they are a different schedule. The step count is in the run name
-(`..._100hr_shc_10000steps_...`) to keep them apart; do not pool them.
+(`..._100hr_shc_12000steps_...`) to keep them apart; do not pool them.
