@@ -45,11 +45,26 @@ MAX_SAMPLE_AUDIO_LEN=${MAX_SAMPLE_AUDIO_LEN:-480000}
 # sixth of it. Each checkpoint is ~1.2 GB and writing one stalls both runs
 # sharing the card, so 2000 was buying insurance that is no longer needed.
 GPU_MEMORY_FRACTION=${GPU_MEMORY_FRACTION:-0.46}
-SAVE_STEPS=${SAVE_STEPS:-6000}
+# 7000, not 6000: save_steps must divide max_steps or the run ends with no
+# checkpoint at the final step. 6000 into the 14000-step WSD profile saves
+# at 6000 and 12000 and nothing at 14000, which is the only checkpoint the
+# comparison uses. 7000 gives 7000 and 14000.
+# 5000 divides the 15000-step WSD profile, so this lands checkpoints at
+# 5000/10000/15000. save_steps MUST divide max_steps: a period that
+# does not leaves the run with no checkpoint at the final step, which
+# is the only one the comparison uses.
+SAVE_STEPS=${SAVE_STEPS:-5000}
+# Only for step lists with no usable common period (e.g. 3000,7000,
+# 15000). Empty means plain --save_steps; the flag is omitted below
+# rather than passed empty, which would swallow the next argument.
+SAVE_AT_STEPS=${SAVE_AT_STEPS:-}
 export PYTORCH_CUDA_ALLOC_CONF=${PYTORCH_CUDA_ALLOC_CONF_OVERRIDE:-\
 expandable_segments:True,garbage_collection_threshold:0.7}
 
-python wav2vec2_finetuning_sets.py \
+SAVE_AT_FLAG=""
+[ -n "$SAVE_AT_STEPS" ] && SAVE_AT_FLAG="--save_at_steps $SAVE_AT_STEPS"
+
+python wav2vec2_finetuning_sets.py $SAVE_AT_FLAG \
     --alpha=$ALPHA \
     --beta=$BETA \
     --alpha_mode=floored_active_support \

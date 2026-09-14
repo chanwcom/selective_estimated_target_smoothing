@@ -213,6 +213,39 @@ _FINETUNE_PROFILES: Dict[str, Dict[str, Any]] = {
     # aren't directly under `train_subdir` -- they're split across three
     # subdirectories, one per split (see `train_shard_subdirs` below, and
     # `sample_util.make_dataset`'s `sub_shard_dirs` param that consumes it).
+    # Warmup-Stable-Decay. The linear-decay 12000-step profile above spends
+    # its whole life shrinking the step size, so every intermediate
+    # checkpoint sits on a different effective schedule and the last 2000
+    # steps buy almost nothing (measured: the final 1500 steps of the
+    # 8000-step runs moved the median cell by -0.0006). WSD holds the peak
+    # rate flat for 9000 steps and spends the decay only at the end, which
+    # separates "how long it trains" from "how it anneals".
+    #
+    # 1000 warmup + 9000 stable + 4000 decay = 14000. num_stable_steps and
+    # num_decay_steps must sum with warmup to max_steps or transformers
+    # silently drops the remainder to the minimum rate.
+    #
+    # Kept as its own profile rather than edited into the one above: this
+    # repo is a single NAS clone and the other machine is running the
+    # 12000-step linear grid right now. The profile name is in the run name,
+    # so the two grids cannot collide on disk and cannot be pooled by
+    # accident.
+    "libri_speech_clean_100hr_wsd": dict(
+        train_subdir="librispeech/webdataset/train-clean-100",
+        warmup_steps=1000,
+        max_steps=15000,
+        eval_steps=1000,
+        lr_scheduler_type="warmup_stable_decay",
+        # 1000 warmup + 10000 stable + 4000 decay = 15000. The three must
+        # sum to max_steps or transformers silently runs the remainder at
+        # min_lr_ratio; main() asserts on it rather than leaving that to a
+        # loss curve. save_steps=5000 divides 15000, so checkpoints land at
+        # 5000/10000/15000 and the final one -- the only one the comparison
+        # uses -- always exists.
+        num_stable_steps=10000,
+        num_decay_steps=4000,
+        decay_type="linear",
+    ),
     "libri_speech_full_960hr": dict(
         train_subdir="librispeech/webdataset/",
         train_shard_subdirs=(
@@ -650,6 +683,29 @@ class StopAtStepCallback(TrainerCallback):
         return control
 
 
+class SaveAtStepsCallback(TrainerCallback):
+    """Checkpoints at an explicit list of steps instead of a fixed period.
+
+    `save_steps` can only express a uniform interval, so a schedule like
+    5000/10000/14000 is not reachable with it: the interval would have to
+    divide every one of them. Forcing `control.should_save` works because
+    the Trainer checks that flag directly, independently of
+    `save_strategy`; with the strategy set to "no" the default flow
+    callback never sets it, so these are the only checkpoints written.
+
+    Ordering matters: this runs after DefaultFlowCallback, so setting the
+    flag here wins.
+    """
+
+    def __init__(self, steps):
+        self.steps = set(steps)
+
+    def on_step_end(self, args, state, control, **kwargs):
+        if state.global_step in self.steps:
+            control.should_save = True
+        return control
+
+
 def _fmt_float(x: float) -> str:
     """Formats a float for use in a directory name, e.g. 0.02 -> '0p02'."""
     return str(x).replace(".", "p").replace("-", "neg")
@@ -967,6 +1023,13 @@ def parse_args():
     parser.add_argument("--max_steps", type=int, default=None)
     parser.add_argument("--save_steps", type=int, default=None)
     parser.add_argument(
+        "--save_at_steps", type=str, default=None,
+        help="Comma-separated steps to checkpoint at, e.g. "
+             "'5000,10000,14000'. Overrides --save_steps: save_strategy "
+             "becomes 'no' and a callback writes exactly these. Use when "
+             "the wanted steps have no common divisor that is also a "
+             "sensible period.")
+    parser.add_argument(
         "--gpu_memory_fraction", type=float, default=0.0,
         help="Cap this process at that fraction of the card, via "
              "torch.cuda.set_per_process_memory_fraction. 0 (default) "
@@ -986,6 +1049,20 @@ def parse_args():
              "Allocator policy only -- it cannot change any number the "
              "run produces.")
     parser.add_argument("--eval_steps", type=int, default=None)
+    # Learning-rate schedule. None means "take it from the profile"; the
+    # profile loop below only fills a key it finds already declared here.
+    parser.add_argument("--lr_scheduler_type", type=str, default=None,
+                        help="HF scheduler name, e.g. linear (default) or "
+                             "warmup_stable_decay.")
+    parser.add_argument("--num_stable_steps", type=int, default=None,
+                        help="warmup_stable_decay only: steps held at the "
+                             "peak rate after warmup.")
+    parser.add_argument("--num_decay_steps", type=int, default=None,
+                        help="warmup_stable_decay only: steps of the final "
+                             "decay. warmup + stable + decay must equal "
+                             "--max_steps.")
+    parser.add_argument("--decay_type", type=str, default=None,
+                        help="warmup_stable_decay only: linear or cosine.")
     parser.add_argument("--logging_steps", type=int, default=25)
     parser.add_argument("--load_best_model_at_end", type=bool, default=None)
     parser.add_argument("--gradient_checkpointing", action="store_true",
@@ -1199,6 +1276,39 @@ def main():
     )
 
     output_dir = os.path.join(args.checkpoint_top_dir, args.run_name)
+
+    # transformers rejects lr_scheduler_kwargs for schedulers that take no
+    # extra arguments, so build it only for warmup_stable_decay and leave
+    # the linear default completely untouched. get_wsd_schedule splits the
+    # run into warmup / stable / decay; if the three do not sum to
+    # max_steps the leftover steps silently run at min_lr_ratio, so assert
+    # instead of discovering it in a loss curve.
+    _sched = args.lr_scheduler_type or "linear"
+    _sched_kwargs = {}
+    if _sched == "warmup_stable_decay":
+        assert args.num_stable_steps is not None, "--num_stable_steps"
+        assert args.num_decay_steps is not None, "--num_decay_steps"
+        _total = args.warmup_steps + args.num_stable_steps + args.num_decay_steps
+        assert _total == args.max_steps, (
+            f"warmup {args.warmup_steps} + stable {args.num_stable_steps} + "
+            f"decay {args.num_decay_steps} = {_total}, not max_steps "
+            f"{args.max_steps}")
+        _sched_kwargs = dict(num_stable_steps=args.num_stable_steps,
+                             num_decay_steps=args.num_decay_steps,
+                             decay_type=args.decay_type or "linear")
+        print(f"[lr] WSD: warmup {args.warmup_steps} -> stable "
+              f"{args.num_stable_steps} -> {_sched_kwargs['decay_type']} decay "
+              f"{args.num_decay_steps} (total {args.max_steps})")
+
+    _save_at = ([int(x) for x in args.save_at_steps.split(",") if x.strip()]
+                if args.save_at_steps else [])
+    if _save_at:
+        assert args.max_steps in _save_at, (
+            f"--save_at_steps {_save_at} has no checkpoint at --max_steps "
+            f"{args.max_steps}; the final checkpoint is the one the "
+            f"comparison uses.")
+        print(f"[ckpt] saving at {_save_at} (save_strategy=no)")
+
     training_args = TrainingArguments(
         output_dir=output_dir,
         seed=args.seed,
@@ -1207,11 +1317,14 @@ def main():
         gradient_accumulation_steps=args.gradient_accumulation_steps,
         warmup_steps=args.warmup_steps,
         max_steps=args.max_steps,
+        lr_scheduler_type=_sched,
+        lr_scheduler_kwargs=_sched_kwargs,
         gradient_checkpointing=args.gradient_checkpointing,
         bf16=args.bf16,
         eval_strategy="steps",
         per_device_eval_batch_size=args.per_device_eval_batch_size,
         eval_accumulation_steps=args.eval_accumulation_steps,
+        save_strategy=("no" if _save_at else "steps"),
         save_steps=args.save_steps,
         eval_steps=args.eval_steps,
         # The training stream is a shuffled WebDataset pipeline with no
@@ -1259,6 +1372,8 @@ def main():
 
     if args.stop_at_step > 0:
         trainer.add_callback(StopAtStepCallback(args.stop_at_step))
+    if _save_at:
+        trainer.add_callback(SaveAtStepsCallback(_save_at))
 
     trainer.train(resume_from_checkpoint=args.resume_from_checkpoint)
 
