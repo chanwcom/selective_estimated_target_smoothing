@@ -17,6 +17,6 @@ for SPLIT in test-clean test-other; do
         --checkpoint_dir "$CHECKPOINT_DIR" \
         --vocab_size 32 \
         --decoder beam_search \
-        --beam_size 20 \
+        --beam_size 40 \
         --test_split $SPLIT
 done
