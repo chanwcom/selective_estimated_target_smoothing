@@ -195,7 +195,18 @@ _FINETUNE_PROFILES: Dict[str, Dict[str, Any]] = {
         # step count is in the run name to keep them apart. 10000 was still
         # not the end of the curve, so the submission grid runs at 12000.
         max_steps=12000,
-        eval_steps=500,
+        # 1000, not 500: at 500 a cell spends 24 x 143 s = 57 min evaluating,
+        # 12.6% of its 7.5 h. Nothing decides anything on the intermediate
+        # points -- the comparison is the step-12000 checkpoint decoded with
+        # one decoder -- so they only need to be dense enough to see that a
+        # run is alive and descending, which 12 points are. Eval frequency
+        # touches no training tensor and load_best_model_at_end is False, so
+        # this changes no number a run produces.
+        #
+        # Cells logged at 500 and at 1000 therefore cannot be lined up by
+        # eval index; index * eval_steps is the step, and only equal steps
+        # compare.
+        eval_steps=1000,
     ),
     # Full LibriSpeech (train-clean-100 + train-clean-360 + train-other-500,
     # ~960h combined). Unlike the profiles above, the shards for this one
