@@ -1,7 +1,9 @@
-# Running seeds 3 and 4 of the 12000-step 100hr sweep
+# Running seed 4 of the 12000-step 100hr sweep
 
-`u24` is running seeds **0, 1, 2**. This describes seeds **3 and 4** on
-another machine. The two halves share a NAS clone of this repo, so the code
+`u24` is running seeds **0, 1, 2, 3**. Seed 3 was originally meant for this
+machine and moved to u24 on 2026-09-14 after this one rebooted, so **do not
+run seed 3 here** -- it would duplicate work already queued there. This
+describes seed **4** only. The two halves share a NAS clone of this repo, so the code
 is already whatever `git log` says here — no pull needed if `$CWK_HOME` and
 this checkout are the NAS paths. Checkpoints and logs land in per-machine
 directories, so nothing collides.
@@ -14,9 +16,10 @@ directories, so nothing collides.
 | FAS | `--beta 0.0`, `--fas_eps 1e-10` |
 | textbook LS | `--beta 1.0` (bit-identical to uniform LS; see `apply_floored_active_support_smoothing`) |
 | alpha | 0.05, 0.10, 0.15, 0.20, 0.25, 0.30 |
-| seeds here | **3, 4** |
+| seeds here | **4** |
 
-6 alphas x 2 methods x 2 seeds = **24 cells**, ~5.4 h each.
+6 alphas x 2 methods x 1 seed = **12 cells**, ~7.6 h each
+(12000 steps at 30.4 step/min plus 24 evals of ~143 s).
 
 ## Before launching
 
@@ -52,13 +55,13 @@ PROFILE=libri_speech_clean_100hr LOG_DIR=$5 bash queue_fas.sh"; }
 L(){ setsid bash -c "export PYTHONPATH=\"\${PYTHONPATH:-}\"; $2" \
        > "chain_12k_$1_$H.out" 2>&1 < /dev/null & }
 
-L A "$(for S in 3 4; do Q 0 "0.05 0.10 0.15" 0.0 $S grid_logs_12k_fas_A_$H; done)"
-L B "$(for S in 3 4; do Q 1 "0.20 0.25 0.30" 0.0 $S grid_logs_12k_fas_B_$H; done)"
-L C "$(for S in 3 4; do Q 0 "0.05 0.10 0.15" 1.0 $S grid_logs_12k_ls_C_$H;  done)"
-L D "$(for S in 3 4; do Q 1 "0.20 0.25 0.30" 1.0 $S grid_logs_12k_ls_D_$H;  done)"
+L A "$(Q 0 "0.05 0.10 0.15" 0.0 4 grid_logs_12k_fas_A_$H)"
+L B "$(Q 1 "0.20 0.25 0.30" 0.0 4 grid_logs_12k_fas_B_$H)"
+L C "$(Q 0 "0.05 0.10 0.15" 1.0 4 grid_logs_12k_ls_C_$H)"
+L D "$(Q 1 "0.20 0.25 0.30" 1.0 4 grid_logs_12k_ls_D_$H)"
 ```
 
-Each lane does seed 3 fully, then seed 4, so **seed 3 completes first**.
+Each lane runs its three alphas at seed 4 and then exits.
 
 `setsid` (not `nohup`) matters: a killed terminal takes the whole process
 group with it otherwise. Verify with `ps -eo pid,ppid,args | grep queue_fas`
