@@ -86,7 +86,7 @@ launcher, copy it to a new filename and point new chains at the copy.
 ## Memory
 
 The launcher already defaults to `--gpu_memory_fraction 0.46`,
-`garbage_collection_threshold:0.7` and `--save_steps 2000`. Two runs fit a
+`garbage_collection_threshold:0.7` and `--save_steps 6000`. Two runs fit a
 32 GB card with those. See `GPU_MEMORY.md` for why; the short version is
 that the caching allocator never gives memory back, so without a cap the
 run that meets a large batch first starves its neighbour.

@@ -36,11 +36,16 @@ MAX_SAMPLE_AUDIO_LEN=${MAX_SAMPLE_AUDIO_LEN:-480000}
 #
 # This is not a guarantee. A batch whose live activations exceed the cap now
 # fails deterministically rather than starving its neighbour, which is why
-# SAVE_STEPS is set below: a failure should cost one checkpoint interval,
+# SAVE_STEPS exists at all: a failure should cost one checkpoint interval,
 # not the whole run. Nothing here changes a number the run produces --
 # allocator policy and checkpoint frequency only.
+#
+# The cap has held since it went in -- no OOM in the runs after it -- so the
+# interval is now the midpoint of the 12000-step schedule rather than a
+# sixth of it. Each checkpoint is ~1.2 GB and writing one stalls both runs
+# sharing the card, so 2000 was buying insurance that is no longer needed.
 GPU_MEMORY_FRACTION=${GPU_MEMORY_FRACTION:-0.46}
-SAVE_STEPS=${SAVE_STEPS:-2000}
+SAVE_STEPS=${SAVE_STEPS:-6000}
 export PYTORCH_CUDA_ALLOC_CONF=${PYTORCH_CUDA_ALLOC_CONF_OVERRIDE:-\
 expandable_segments:True,garbage_collection_threshold:0.7}
 

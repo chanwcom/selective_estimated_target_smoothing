@@ -75,7 +75,7 @@ change takes effect on each lane's next cell with no restart.
 
 ```bash
 GPU_MEMORY_FRACTION=0.46     # --gpu_memory_fraction
-SAVE_STEPS=2000              # --save_steps
+SAVE_STEPS=6000              # --save_steps
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True,garbage_collection_threshold:0.7
 ```
 
@@ -89,10 +89,16 @@ least-recently-used cached blocks once reservation passes 70% of that cap,
 instead of waiting for an allocation to fail. This is what stops the
 ratchet. It needs the cap to be set, since the cap is its denominator.
 
-**`--save_steps 2000`** is the safety net. `save_steps` is otherwise synced
+**`--save_steps 6000`** is the safety net. `save_steps` is otherwise synced
 to `max_steps`, so an OOM at step 7000 of 8000 threw away four hours with
-nothing to resume from. At 2000 the worst case is one hour, recoverable
-with `--resume_from_checkpoint`.
+nothing to resume from; an intermediate checkpoint makes the worst case
+recoverable with `--resume_from_checkpoint`.
+
+It started at 2000 while the cap was unproven. No run has OOM'd since the
+cap went in, so the interval is now 6000 -- the midpoint of the 12000-step
+schedule. Each checkpoint is about 1.2 GB and writing one stalls both runs
+sharing the card, so the tighter interval was paying a real cost for
+insurance that has not been claimed.
 
 None of the three changes a number the run produces: two are allocator
 policy, one is checkpoint frequency. Cells measured before and after stay
