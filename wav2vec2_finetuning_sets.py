@@ -171,12 +171,51 @@ _GPU_PROFILES: Dict[str, Dict[str, Any]] = {
 # `--finetune_profile` picks one of these; any individually-passed CLI flag
 # (--warmup_steps/--max_steps/--eval_steps/--save_steps/--train_top_dir)
 # overrides just that value.
+# Below this much VRAM, --gpu_memory_fraction is ignored (see main()).
+#
+# That flag exists for putting two runs on one card, which only the 32 GB
+# class can do: a 1hr run peaks around 21 GiB, so two of them need ~42 GiB
+# and a 24 GB card fits exactly one. Applying a fraction meant for sharing
+# to a card that cannot share does nothing but OOM the single run it has --
+# measured on a 4090, where the shipped 0.46 capped the process at 10.8 GiB
+# and it died in the first backward asking for 2.44 GiB with 14.5 GiB still
+# free on the card.
+#
+# 30.0 rather than 32.0 because a nominally "32 GB" card reports less than
+# that once the driver's reservation is out: the 5090s here come back as
+# 31.4 GiB. The cutoff has to sit below the nominal figure or it would
+# bypass on exactly the cards the flag is for.
+_MEMORY_FRACTION_MIN_GIB = 30.0
+
 _FINETUNE_PROFILES: Dict[str, Dict[str, Any]] = {
     "libri_light_1hr": dict(
         train_subdir="libri_light_finetuning/webdataset/1h",
         warmup_steps=1000,
-        max_steps=2000,
+        # Warmup-Stable-Decay, 1000 warmup + 1000 stable + 500 decay = 2500.
+        # The three must sum to max_steps or transformers silently runs the
+        # remainder at min_lr_ratio; main() asserts on it rather than
+        # leaving that to a loss curve.
+        #
+        # Replaces the previous 2000-step linear decay. Under linear the
+        # rate starts falling the step warmup ends, so half the run is
+        # spent annealing; WSD holds the peak rate for a real stretch and
+        # compresses the anneal into the last 500 steps. Every smoothing
+        # method here is an intervention on the TARGET, and the target
+        # only stops moving once the alignment sharpens, so how long the
+        # model trains at the peak rate before annealing is not a neutral
+        # detail for this comparison.
+        #
+        # max_steps is in the run name (_default_run_name), so 2500-step
+        # runs land in their own checkpoint directories and cannot collide
+        # with the 2000-step linear ones. Their eval numbers are NOT
+        # comparable -- different schedule, different budget -- so keep
+        # their logs in separate grid_logs_* directories too.
+        max_steps=2500,
         eval_steps=500,
+        lr_scheduler_type="warmup_stable_decay",
+        num_stable_steps=1000,
+        num_decay_steps=500,
+        decay_type="linear",
     ),
     "libri_light_10hr": dict(
         train_subdir="libri_light_finetuning/webdataset/10h",
@@ -1047,7 +1086,9 @@ def parse_args():
              "neighbour, so pair this with a --save_steps small enough "
              "that a failure costs one checkpoint interval, not the run. "
              "Allocator policy only -- it cannot change any number the "
-             "run produces.")
+             "run produces. Ignored on cards below "
+             f"{_MEMORY_FRACTION_MIN_GIB:.0f} GiB, which cannot fit two "
+             "runs anyway -- see the bypass in main().")
     parser.add_argument("--eval_steps", type=int, default=None)
     # Learning-rate schedule. None means "take it from the profile"; the
     # profile loop below only fills a key it finds already declared here.
@@ -1173,10 +1214,24 @@ def parse_args():
     args.train_shard_subdirs = finetune_profile.get("train_shard_subdirs")
 
     if args.gpu_memory_fraction > 0 and torch.cuda.is_available():
-        torch.cuda.set_per_process_memory_fraction(args.gpu_memory_fraction)
-        _total = torch.cuda.get_device_properties(0).total_memory / 2 ** 20
-        print(f"[mem] capped at {args.gpu_memory_fraction:.3f} of "
-              f"{_total:.0f} MiB = {_total * args.gpu_memory_fraction:.0f} MiB")
+        _gib = torch.cuda.get_device_properties(0).total_memory / 2 ** 30
+        _total = _gib * 1024
+        if _gib < _MEMORY_FRACTION_MIN_GIB:
+            # The launcher scripts ship a fraction sized for the 32 GB
+            # cards, where two runs share a GPU. Honouring it here would
+            # cap the one run this card can hold to a fraction of what it
+            # needs, so ignore it rather than making every caller
+            # special-case the hardware.
+            print(f"[mem] --gpu_memory_fraction "
+                  f"{args.gpu_memory_fraction:.3f} ignored: this card has "
+                  f"{_gib:.1f} GiB, below the {_MEMORY_FRACTION_MIN_GIB:.0f} "
+                  f"GiB needed to share a GPU. Running unconstrained.")
+        else:
+            torch.cuda.set_per_process_memory_fraction(
+                args.gpu_memory_fraction)
+            print(f"[mem] capped at {args.gpu_memory_fraction:.3f} of "
+                  f"{_total:.0f} MiB = "
+                  f"{_total * args.gpu_memory_fraction:.0f} MiB")
 
     if args.dynamic_batching and args.max_batch_audio_len is None:
         parser.error(
