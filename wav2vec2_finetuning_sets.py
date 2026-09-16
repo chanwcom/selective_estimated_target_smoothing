@@ -211,7 +211,20 @@ _FINETUNE_PROFILES: Dict[str, Dict[str, Any]] = {
         # comparable -- different schedule, different budget -- so keep
         # their logs in separate grid_logs_* directories too.
         max_steps=3000,
-        eval_steps=500,
+        # 1000, matching the 100hr profiles, so every profile reports on the
+        # same period. Nothing decides anything on the intermediate points --
+        # the comparison is the final checkpoint -- they only need to be
+        # dense enough to see that a run is alive and descending, and 3
+        # points do that for a 3000-step run. Each eval costs ~93 s, so
+        # halving their number takes ~5 minutes off every run.
+        #
+        # Safe to change mid-sweep: eval frequency touches no training
+        # tensor and load_best_model_at_end is False in every GPU profile,
+        # so a run's final WER is identical either way. What it does change
+        # is that logs written at 500 and at 1000 cannot be lined up by eval
+        # INDEX -- index * eval_steps is the step -- so any trajectory
+        # analysis has to read the period per log rather than assume it.
+        eval_steps=1000,
         lr_scheduler_type="warmup_stable_decay",
         num_stable_steps=1500,
         num_decay_steps=500,
@@ -233,7 +246,10 @@ _FINETUNE_PROFILES: Dict[str, Dict[str, Any]] = {
         # separate grid_logs_* directories from the 4000-step ones. Their
         # numbers are NOT comparable with those.
         max_steps=6000,
-        eval_steps=500,
+        # 1000, same reasoning as the 1hr profile above: uniform across
+        # profiles, still 6 points to watch a run descend, and ~9 minutes
+        # saved per run at ~93 s an eval.
+        eval_steps=1000,
         lr_scheduler_type="warmup_stable_decay",
         num_stable_steps=4000,
         num_decay_steps=1000,
