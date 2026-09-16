@@ -191,7 +191,7 @@ _FINETUNE_PROFILES: Dict[str, Dict[str, Any]] = {
     "libri_light_1hr": dict(
         train_subdir="libri_light_finetuning/webdataset/1h",
         warmup_steps=1000,
-        # Warmup-Stable-Decay, 1000 warmup + 1000 stable + 500 decay = 2500.
+        # Warmup-Stable-Decay, 1000 warmup + 1500 stable + 500 decay = 3000.
         # The three must sum to max_steps or transformers silently runs the
         # remainder at min_lr_ratio; main() asserts on it rather than
         # leaving that to a loss curve.
@@ -205,15 +205,15 @@ _FINETUNE_PROFILES: Dict[str, Dict[str, Any]] = {
         # model trains at the peak rate before annealing is not a neutral
         # detail for this comparison.
         #
-        # max_steps is in the run name (_default_run_name), so 2500-step
+        # max_steps is in the run name (_default_run_name), so 3000-step
         # runs land in their own checkpoint directories and cannot collide
         # with the 2000-step linear ones. Their eval numbers are NOT
         # comparable -- different schedule, different budget -- so keep
         # their logs in separate grid_logs_* directories too.
-        max_steps=2500,
+        max_steps=3000,
         eval_steps=500,
         lr_scheduler_type="warmup_stable_decay",
-        num_stable_steps=1000,
+        num_stable_steps=1500,
         num_decay_steps=500,
         decay_type="linear",
     ),
