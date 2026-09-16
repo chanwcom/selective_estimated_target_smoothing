@@ -220,8 +220,24 @@ _FINETUNE_PROFILES: Dict[str, Dict[str, Any]] = {
     "libri_light_10hr": dict(
         train_subdir="libri_light_finetuning/webdataset/10h",
         warmup_steps=1000,
-        max_steps=4000,
+        # WSD, 1000 warmup + 4000 stable + 1000 decay = 6000. Same reasoning
+        # as libri_light_1hr above -- hold the peak rate long enough that the
+        # alignment, and so the target every method here modifies, settles
+        # before the anneal starts -- scaled to this profile's budget: the
+        # stable phase is 4000 steps rather than 1500, and the anneal 1000
+        # rather than 500.
+        #
+        # Replaces the previous 4000-step linear decay. As with 1hr, the
+        # 6000-step runs get their own checkpoint directories (max_steps is
+        # in the run name) but share a log file name, so their logs belong in
+        # separate grid_logs_* directories from the 4000-step ones. Their
+        # numbers are NOT comparable with those.
+        max_steps=6000,
         eval_steps=500,
+        lr_scheduler_type="warmup_stable_decay",
+        num_stable_steps=4000,
+        num_decay_steps=1000,
+        decay_type="linear",
     ),
     "libri_speech_clean_100hr": dict(
         train_subdir="librispeech/webdataset/train-clean-100",
