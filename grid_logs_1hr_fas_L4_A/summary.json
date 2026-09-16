@@ -1,0 +1,163 @@
+{
+  "profile": "libri_light_1hr",
+  "results": {
+    "profile=libri_light_1hr_alpha=0.15_beta=0.0": [
+      {
+        "returncode": 0,
+        "wall_time_s": 3911.7069920417853,
+        "eval_metrics": {
+          "eval_loss": "38.24",
+          "eval_wer": "0.1995",
+          "eval_runtime": "100",
+          "eval_samples_per_second": "26.1",
+          "eval_steps_per_second": "1.09",
+          "fas_n_active": "3.585",
+          "fas_frac": "0.112",
+          "fas_mass_eff": "0.0168",
+          "fas_mass_active_only": "0.0168",
+          "fas_n1_frac": "0.0071",
+          "epoch": "285"
+        },
+        "train_summary": {
+          "train_runtime": "3893",
+          "train_samples_per_second": "24.66",
+          "train_steps_per_second": "0.514",
+          "train_loss": "403.6",
+          "epoch": "285"
+        },
+        "cached": false
+      }
+    ],
+    "profile=libri_light_1hr_alpha=0.15_beta=0.025": [
+      {
+        "returncode": 0,
+        "wall_time_s": 3975.0206931498833,
+        "eval_metrics": {
+          "eval_loss": "38.4",
+          "eval_wer": "0.1992",
+          "eval_runtime": "93.92",
+          "eval_samples_per_second": "27.8",
+          "eval_steps_per_second": "1.161",
+          "fas_n_active": "3.573",
+          "fas_frac": "0.1117",
+          "fas_mass_eff": "0.0201",
+          "fas_mass_active_only": "0.0167",
+          "fas_n1_frac": "0.0079",
+          "epoch": "285"
+        },
+        "train_summary": {
+          "train_runtime": "3957",
+          "train_samples_per_second": "24.26",
+          "train_steps_per_second": "0.505",
+          "train_loss": "398.3",
+          "epoch": "285"
+        },
+        "cached": false
+      }
+    ],
+    "profile=libri_light_1hr_alpha=0.15_beta=0.05": [
+      {
+        "returncode": 0,
+        "wall_time_s": 3915.5928335399367,
+        "eval_metrics": {
+          "eval_loss": "38.86",
+          "eval_wer": "0.198",
+          "eval_runtime": "86.55",
+          "eval_samples_per_second": "30.17",
+          "eval_steps_per_second": "1.259",
+          "fas_n_active": "3.588",
+          "fas_frac": "0.1121",
+          "fas_mass_eff": "0.0235",
+          "fas_mass_active_only": "0.0168",
+          "fas_n1_frac": "0.0085",
+          "epoch": "285"
+        },
+        "train_summary": {
+          "train_runtime": "3897",
+          "train_samples_per_second": "24.63",
+          "train_steps_per_second": "0.513",
+          "train_loss": "405.2",
+          "epoch": "285"
+        },
+        "cached": false
+      }
+    ]
+  },
+  "summary": {
+    "profile=libri_light_1hr_alpha=0.15_beta=0.0": {
+      "n_total": 1,
+      "n_ok": 1,
+      "eval_wer": {
+        "values": [
+          0.1995
+        ],
+        "mean": 0.1995,
+        "std": 0.0
+      },
+      "eval_loss": {
+        "values": [
+          38.24
+        ],
+        "mean": 38.24,
+        "std": 0.0
+      },
+      "train_runtime": {
+        "values": [
+          3893.0
+        ],
+        "mean": 3893.0,
+        "std": 0.0
+      }
+    },
+    "profile=libri_light_1hr_alpha=0.15_beta=0.025": {
+      "n_total": 1,
+      "n_ok": 1,
+      "eval_wer": {
+        "values": [
+          0.1992
+        ],
+        "mean": 0.1992,
+        "std": 0.0
+      },
+      "eval_loss": {
+        "values": [
+          38.4
+        ],
+        "mean": 38.4,
+        "std": 0.0
+      },
+      "train_runtime": {
+        "values": [
+          3957.0
+        ],
+        "mean": 3957.0,
+        "std": 0.0
+      }
+    },
+    "profile=libri_light_1hr_alpha=0.15_beta=0.05": {
+      "n_total": 1,
+      "n_ok": 1,
+      "eval_wer": {
+        "values": [
+          0.198
+        ],
+        "mean": 0.198,
+        "std": 0.0
+      },
+      "eval_loss": {
+        "values": [
+          38.86
+        ],
+        "mean": 38.86,
+        "std": 0.0
+      },
+      "train_runtime": {
+        "values": [
+          3897.0
+        ],
+        "mean": 3897.0,
+        "std": 0.0
+      }
+    }
+  }
+}

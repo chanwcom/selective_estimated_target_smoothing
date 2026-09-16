@@ -1,0 +1,163 @@
+{
+  "profile": "libri_light_1hr",
+  "results": {
+    "profile=libri_light_1hr_alpha=0.15_beta=0.075": [
+      {
+        "returncode": 0,
+        "wall_time_s": 3929.1508567370474,
+        "eval_metrics": {
+          "eval_loss": "39.05",
+          "eval_wer": "0.1989",
+          "eval_runtime": "87.92",
+          "eval_samples_per_second": "29.7",
+          "eval_steps_per_second": "1.24",
+          "fas_n_active": "3.603",
+          "fas_frac": "0.1126",
+          "fas_mass_eff": "0.0269",
+          "fas_mass_active_only": "0.0169",
+          "fas_n1_frac": "0.0084",
+          "epoch": "285"
+        },
+        "train_summary": {
+          "train_runtime": "3910",
+          "train_samples_per_second": "24.55",
+          "train_steps_per_second": "0.512",
+          "train_loss": "422.1",
+          "epoch": "285"
+        },
+        "cached": false
+      }
+    ],
+    "profile=libri_light_1hr_alpha=0.15_beta=0.1": [
+      {
+        "returncode": 0,
+        "wall_time_s": 3961.0641530239955,
+        "eval_metrics": {
+          "eval_loss": "39.94",
+          "eval_wer": "0.1994",
+          "eval_runtime": "90.14",
+          "eval_samples_per_second": "28.97",
+          "eval_steps_per_second": "1.209",
+          "fas_n_active": "3.622",
+          "fas_frac": "0.1132",
+          "fas_mass_eff": "0.0303",
+          "fas_mass_active_only": "0.017",
+          "fas_n1_frac": "0.0081",
+          "epoch": "285"
+        },
+        "train_summary": {
+          "train_runtime": "3942",
+          "train_samples_per_second": "24.35",
+          "train_steps_per_second": "0.507",
+          "train_loss": "404.9",
+          "epoch": "285"
+        },
+        "cached": false
+      }
+    ],
+    "profile=libri_light_1hr_alpha=0.4_beta=0.075": [
+      {
+        "returncode": 0,
+        "wall_time_s": 4027.9680198929273,
+        "eval_metrics": {
+          "eval_loss": "47.27",
+          "eval_wer": "0.194",
+          "eval_runtime": "87.35",
+          "eval_samples_per_second": "29.89",
+          "eval_steps_per_second": "1.248",
+          "fas_n_active": "4.127",
+          "fas_frac": "0.129",
+          "fas_mass_eff": "0.0777",
+          "fas_mass_active_only": "0.0516",
+          "fas_n1_frac": "0.0056",
+          "epoch": "285"
+        },
+        "train_summary": {
+          "train_runtime": "4009",
+          "train_samples_per_second": "23.95",
+          "train_steps_per_second": "0.499",
+          "train_loss": "514.8",
+          "epoch": "285"
+        },
+        "cached": false
+      }
+    ]
+  },
+  "summary": {
+    "profile=libri_light_1hr_alpha=0.15_beta=0.075": {
+      "n_total": 1,
+      "n_ok": 1,
+      "eval_wer": {
+        "values": [
+          0.1989
+        ],
+        "mean": 0.1989,
+        "std": 0.0
+      },
+      "eval_loss": {
+        "values": [
+          39.05
+        ],
+        "mean": 39.05,
+        "std": 0.0
+      },
+      "train_runtime": {
+        "values": [
+          3910.0
+        ],
+        "mean": 3910.0,
+        "std": 0.0
+      }
+    },
+    "profile=libri_light_1hr_alpha=0.15_beta=0.1": {
+      "n_total": 1,
+      "n_ok": 1,
+      "eval_wer": {
+        "values": [
+          0.1994
+        ],
+        "mean": 0.1994,
+        "std": 0.0
+      },
+      "eval_loss": {
+        "values": [
+          39.94
+        ],
+        "mean": 39.94,
+        "std": 0.0
+      },
+      "train_runtime": {
+        "values": [
+          3942.0
+        ],
+        "mean": 3942.0,
+        "std": 0.0
+      }
+    },
+    "profile=libri_light_1hr_alpha=0.4_beta=0.075": {
+      "n_total": 1,
+      "n_ok": 1,
+      "eval_wer": {
+        "values": [
+          0.194
+        ],
+        "mean": 0.194,
+        "std": 0.0
+      },
+      "eval_loss": {
+        "values": [
+          47.27
+        ],
+        "mean": 47.27,
+        "std": 0.0
+      },
+      "train_runtime": {
+        "values": [
+          4009.0
+        ],
+        "mean": 4009.0,
+        "std": 0.0
+      }
+    }
+  }
+}

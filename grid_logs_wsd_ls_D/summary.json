@@ -1,0 +1,163 @@
+{
+  "profile": "libri_speech_clean_100hr_wsd",
+  "results": {
+    "profile=libri_speech_clean_100hr_wsd_alpha=0.2_beta=1.0": [
+      {
+        "returncode": 0,
+        "wall_time_s": 31786.434672654606,
+        "eval_metrics": {
+          "eval_loss": "76.3",
+          "eval_wer": "0.05903",
+          "eval_runtime": "133",
+          "eval_samples_per_second": "19.64",
+          "eval_steps_per_second": "1.64",
+          "fas_n_active": "3.958",
+          "fas_frac": "0.1237",
+          "fas_mass_eff": "0.2",
+          "fas_mass_active_only": "0.0247",
+          "fas_n1_frac": "0.0055",
+          "epoch": "32"
+        },
+        "train_summary": {
+          "train_runtime": "3.176e+04",
+          "train_samples_per_second": "22.67",
+          "train_steps_per_second": "0.472",
+          "train_loss": "341.4",
+          "epoch": "32"
+        },
+        "cached": false
+      }
+    ],
+    "profile=libri_speech_clean_100hr_wsd_alpha=0.25_beta=1.0": [
+      {
+        "returncode": 0,
+        "wall_time_s": 32659.989166160114,
+        "eval_metrics": {
+          "eval_loss": "96.59",
+          "eval_wer": "0.06009",
+          "eval_runtime": "138.4",
+          "eval_samples_per_second": "18.86",
+          "eval_steps_per_second": "1.575",
+          "fas_n_active": "4.099",
+          "fas_frac": "0.1281",
+          "fas_mass_eff": "0.25",
+          "fas_mass_active_only": "0.032",
+          "fas_n1_frac": "0.0056",
+          "epoch": "32"
+        },
+        "train_summary": {
+          "train_runtime": "3.264e+04",
+          "train_samples_per_second": "22.06",
+          "train_steps_per_second": "0.46",
+          "train_loss": "419.9",
+          "epoch": "32"
+        },
+        "cached": false
+      }
+    ],
+    "profile=libri_speech_clean_100hr_wsd_alpha=0.3_beta=1.0": [
+      {
+        "returncode": 0,
+        "wall_time_s": 32986.31964980345,
+        "eval_metrics": {
+          "eval_loss": "118.9",
+          "eval_wer": "0.05984",
+          "eval_runtime": "159.3",
+          "eval_samples_per_second": "16.39",
+          "eval_steps_per_second": "1.369",
+          "fas_n_active": "4.266",
+          "fas_frac": "0.1333",
+          "fas_mass_eff": "0.3",
+          "fas_mass_active_only": "0.04",
+          "fas_n1_frac": "0.0055",
+          "epoch": "32"
+        },
+        "train_summary": {
+          "train_runtime": "3.296e+04",
+          "train_samples_per_second": "21.84",
+          "train_steps_per_second": "0.455",
+          "train_loss": "507.9",
+          "epoch": "32"
+        },
+        "cached": false
+      }
+    ]
+  },
+  "summary": {
+    "profile=libri_speech_clean_100hr_wsd_alpha=0.2_beta=1.0": {
+      "n_total": 1,
+      "n_ok": 1,
+      "eval_wer": {
+        "values": [
+          0.05903
+        ],
+        "mean": 0.05903,
+        "std": 0.0
+      },
+      "eval_loss": {
+        "values": [
+          76.3
+        ],
+        "mean": 76.3,
+        "std": 0.0
+      },
+      "train_runtime": {
+        "values": [
+          31760.0
+        ],
+        "mean": 31760.0,
+        "std": 0.0
+      }
+    },
+    "profile=libri_speech_clean_100hr_wsd_alpha=0.25_beta=1.0": {
+      "n_total": 1,
+      "n_ok": 1,
+      "eval_wer": {
+        "values": [
+          0.06009
+        ],
+        "mean": 0.06009,
+        "std": 0.0
+      },
+      "eval_loss": {
+        "values": [
+          96.59
+        ],
+        "mean": 96.59,
+        "std": 0.0
+      },
+      "train_runtime": {
+        "values": [
+          32640.0
+        ],
+        "mean": 32640.0,
+        "std": 0.0
+      }
+    },
+    "profile=libri_speech_clean_100hr_wsd_alpha=0.3_beta=1.0": {
+      "n_total": 1,
+      "n_ok": 1,
+      "eval_wer": {
+        "values": [
+          0.05984
+        ],
+        "mean": 0.05984,
+        "std": 0.0
+      },
+      "eval_loss": {
+        "values": [
+          118.9
+        ],
+        "mean": 118.9,
+        "std": 0.0
+      },
+      "train_runtime": {
+        "values": [
+          32960.0
+        ],
+        "mean": 32960.0,
+        "std": 0.0
+      }
+    }
+  }
+}

@@ -1,0 +1,142 @@
+{
+  "profile": "libri_speech_clean_100hr",
+  "results": {
+    "profile=libri_speech_clean_100hr_alpha=0.05_beta=1.0": [
+      {
+        "returncode": 0,
+        "wall_time_s": 17739.709817808587,
+        "eval_metrics": {
+          "eval_loss": "23.53",
+          "eval_wer": "0.06373",
+          "eval_runtime": "133.2",
+          "eval_samples_per_second": "19.61",
+          "eval_steps_per_second": "1.637",
+          "fas_n_active": "3.412",
+          "fas_frac": "0.1066",
+          "fas_mass_eff": "0.05",
+          "fas_mass_active_only": "0.0053",
+          "fas_n1_frac": "0.0072",
+          "epoch": "17.01"
+        },
+        "train_summary": {
+          "train_runtime": "1.772e+04",
+          "train_samples_per_second": "21.67",
+          "train_steps_per_second": "0.451",
+          "train_loss": "166",
+          "epoch": "17.01"
+        },
+        "cached": false
+      }
+    ],
+    "profile=libri_speech_clean_100hr_alpha=0.1_beta=1.0": [
+      {
+        "returncode": 143,
+        "wall_time_s": 21158.153316007927,
+        "eval_metrics": {
+          "eval_loss": "41.97",
+          "eval_wer": "0.09333",
+          "eval_runtime": "165.3",
+          "eval_samples_per_second": "15.8",
+          "eval_steps_per_second": "1.319",
+          "fas_n_active": "3.664",
+          "fas_frac": "0.1145",
+          "fas_mass_eff": "0.1",
+          "fas_mass_active_only": "0.0114",
+          "fas_n1_frac": "0.0059",
+          "epoch": "3.012"
+        },
+        "train_summary": {
+          "train_runtime": "1.766e+04",
+          "train_samples_per_second": "21.74",
+          "train_steps_per_second": "0.453",
+          "train_loss": "229",
+          "epoch": "17.01"
+        },
+        "cached": false
+      }
+    ],
+    "profile=libri_speech_clean_100hr_alpha=0.15_beta=1.0": [
+      {
+        "returncode": 0,
+        "wall_time_s": 18126.238605295774,
+        "eval_metrics": {
+          "eval_loss": "57.04",
+          "eval_wer": "0.06653",
+          "eval_runtime": "137.2",
+          "eval_samples_per_second": "19.03",
+          "eval_steps_per_second": "1.589",
+          "fas_n_active": "3.812",
+          "fas_frac": "0.1191",
+          "fas_mass_eff": "0.15",
+          "fas_mass_active_only": "0.0179",
+          "fas_n1_frac": "0.0056",
+          "epoch": "17.01"
+        },
+        "train_summary": {
+          "train_runtime": "1.811e+04",
+          "train_samples_per_second": "21.21",
+          "train_steps_per_second": "0.442",
+          "train_loss": "299.1",
+          "epoch": "17.01"
+        },
+        "cached": false
+      }
+    ]
+  },
+  "summary": {
+    "profile=libri_speech_clean_100hr_alpha=0.05_beta=1.0": {
+      "n_total": 1,
+      "n_ok": 1,
+      "eval_wer": {
+        "values": [
+          0.06373
+        ],
+        "mean": 0.06373,
+        "std": 0.0
+      },
+      "eval_loss": {
+        "values": [
+          23.53
+        ],
+        "mean": 23.53,
+        "std": 0.0
+      },
+      "train_runtime": {
+        "values": [
+          17720.0
+        ],
+        "mean": 17720.0,
+        "std": 0.0
+      }
+    },
+    "profile=libri_speech_clean_100hr_alpha=0.1_beta=1.0": {
+      "n_total": 1,
+      "n_ok": 0
+    },
+    "profile=libri_speech_clean_100hr_alpha=0.15_beta=1.0": {
+      "n_total": 1,
+      "n_ok": 1,
+      "eval_wer": {
+        "values": [
+          0.06653
+        ],
+        "mean": 0.06653,
+        "std": 0.0
+      },
+      "eval_loss": {
+        "values": [
+          57.04
+        ],
+        "mean": 57.04,
+        "std": 0.0
+      },
+      "train_runtime": {
+        "values": [
+          18110.0
+        ],
+        "mean": 18110.0,
+        "std": 0.0
+      }
+    }
+  }
+}

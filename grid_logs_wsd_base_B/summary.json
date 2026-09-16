@@ -1,0 +1,87 @@
+{
+  "profile": "libri_speech_clean_100hr_wsd",
+  "results": {
+    "profile=libri_speech_clean_100hr_wsd_alpha=0.0_beta=0.0": [
+      {
+        "returncode": 0,
+        "wall_time_s": 32363.171205643564,
+        "eval_metrics": {
+          "eval_loss": "13.66",
+          "eval_wer": "0.05946",
+          "eval_runtime": "141.3",
+          "eval_samples_per_second": "18.48",
+          "eval_steps_per_second": "1.543",
+          "fas_n_active": "2.134",
+          "fas_frac": "0.0667",
+          "fas_mass_eff": "0",
+          "fas_mass_active_only": "0",
+          "fas_n1_frac": "0.2673",
+          "epoch": "32"
+        },
+        "train_summary": {
+          "train_runtime": "3.234e+04",
+          "train_samples_per_second": "22.27",
+          "train_steps_per_second": "0.464",
+          "train_loss": "63.37",
+          "epoch": "32"
+        },
+        "cached": false
+      },
+      {
+        "returncode": 0,
+        "wall_time_s": 32371.766126552597,
+        "eval_metrics": {
+          "eval_loss": "14.04",
+          "eval_wer": "0.05915",
+          "eval_runtime": "140.4",
+          "eval_samples_per_second": "18.59",
+          "eval_steps_per_second": "1.553",
+          "fas_n_active": "2.149",
+          "fas_frac": "0.0671",
+          "fas_mass_eff": "0",
+          "fas_mass_active_only": "0",
+          "fas_n1_frac": "0.2655",
+          "epoch": "32"
+        },
+        "train_summary": {
+          "train_runtime": "3.235e+04",
+          "train_samples_per_second": "22.26",
+          "train_steps_per_second": "0.464",
+          "train_loss": "64.5",
+          "epoch": "32"
+        },
+        "cached": false
+      }
+    ]
+  },
+  "summary": {
+    "profile=libri_speech_clean_100hr_wsd_alpha=0.0_beta=0.0": {
+      "n_total": 2,
+      "n_ok": 2,
+      "eval_wer": {
+        "values": [
+          0.05946,
+          0.05915
+        ],
+        "mean": 0.059305,
+        "std": 0.00021920310216782816
+      },
+      "eval_loss": {
+        "values": [
+          13.66,
+          14.04
+        ],
+        "mean": 13.85,
+        "std": 0.26870057685088733
+      },
+      "train_runtime": {
+        "values": [
+          32340.0,
+          32350.0
+        ],
+        "mean": 32345.0,
+        "std": 7.0710678118654755
+      }
+    }
+  }
+}

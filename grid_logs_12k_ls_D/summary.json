@@ -1,0 +1,111 @@
+{
+  "profile": "libri_speech_clean_100hr",
+  "results": {
+    "profile=libri_speech_clean_100hr_alpha=0.2_beta=1.0": [
+      {
+        "returncode": 0,
+        "wall_time_s": 26673.513975530863,
+        "eval_metrics": {
+          "eval_loss": "75.94",
+          "eval_wer": "0.06526",
+          "eval_runtime": "140.8",
+          "eval_samples_per_second": "18.54",
+          "eval_steps_per_second": "1.548",
+          "fas_n_active": "4.002",
+          "fas_frac": "0.1251",
+          "fas_mass_eff": "0.2",
+          "fas_mass_active_only": "0.025",
+          "fas_n1_frac": "0.0055",
+          "epoch": "25.03"
+        },
+        "train_summary": {
+          "train_runtime": "2.665e+04",
+          "train_samples_per_second": "21.61",
+          "train_steps_per_second": "0.45",
+          "train_loss": "351.6",
+          "epoch": "25.03"
+        },
+        "cached": false
+      }
+    ],
+    "profile=libri_speech_clean_100hr_alpha=0.25_beta=1.0": [
+      {
+        "returncode": 0,
+        "wall_time_s": 25527.71581606008,
+        "eval_metrics": {
+          "eval_loss": "96.11",
+          "eval_wer": "0.06192",
+          "eval_runtime": "133.7",
+          "eval_samples_per_second": "19.53",
+          "eval_steps_per_second": "1.631",
+          "fas_n_active": "4.117",
+          "fas_frac": "0.1287",
+          "fas_mass_eff": "0.25",
+          "fas_mass_active_only": "0.0322",
+          "fas_n1_frac": "0.0055",
+          "epoch": "25.03"
+        },
+        "train_summary": {
+          "train_runtime": "2.55e+04",
+          "train_samples_per_second": "22.58",
+          "train_steps_per_second": "0.47",
+          "train_loss": "429.6",
+          "epoch": "25.03"
+        },
+        "cached": false
+      }
+    ]
+  },
+  "summary": {
+    "profile=libri_speech_clean_100hr_alpha=0.2_beta=1.0": {
+      "n_total": 1,
+      "n_ok": 1,
+      "eval_wer": {
+        "values": [
+          0.06526
+        ],
+        "mean": 0.06526,
+        "std": 0.0
+      },
+      "eval_loss": {
+        "values": [
+          75.94
+        ],
+        "mean": 75.94,
+        "std": 0.0
+      },
+      "train_runtime": {
+        "values": [
+          26650.0
+        ],
+        "mean": 26650.0,
+        "std": 0.0
+      }
+    },
+    "profile=libri_speech_clean_100hr_alpha=0.25_beta=1.0": {
+      "n_total": 1,
+      "n_ok": 1,
+      "eval_wer": {
+        "values": [
+          0.06192
+        ],
+        "mean": 0.06192,
+        "std": 0.0
+      },
+      "eval_loss": {
+        "values": [
+          96.11
+        ],
+        "mean": 96.11,
+        "std": 0.0
+      },
+      "train_runtime": {
+        "values": [
+          25500.0
+        ],
+        "mean": 25500.0,
+        "std": 0.0
+      }
+    }
+  }
+}

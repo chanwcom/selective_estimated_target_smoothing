@@ -1,0 +1,313 @@
+{
+  "profile": "libri_light_1hr",
+  "results": {
+    "profile=libri_light_1hr_alpha=0.4_beta=0.0": [
+      {
+        "returncode": 0,
+        "wall_time_s": null,
+        "eval_metrics": {
+          "eval_loss": "41.33",
+          "eval_wer": "0.1936",
+          "eval_runtime": "83.9",
+          "eval_samples_per_second": "31.12",
+          "eval_steps_per_second": "1.299",
+          "as_n_active": "3.148",
+          "as_frac": "0.0984",
+          "as_alpha_eff": "0.0394",
+          "epoch": "285"
+        },
+        "train_summary": {
+          "train_runtime": "3283",
+          "train_samples_per_second": "29.24",
+          "train_steps_per_second": "0.609",
+          "train_loss": "465.6",
+          "epoch": "285"
+        },
+        "cached": true
+      },
+      {
+        "returncode": 0,
+        "wall_time_s": 3312.8581327903084,
+        "eval_metrics": {
+          "eval_loss": "40.18",
+          "eval_wer": "0.1958",
+          "eval_runtime": "99.76",
+          "eval_samples_per_second": "26.17",
+          "eval_steps_per_second": "1.093",
+          "as_n_active": "3.107",
+          "as_frac": "0.0971",
+          "as_alpha_eff": "0.0388",
+          "epoch": "285"
+        },
+        "train_summary": {
+          "train_runtime": "3295",
+          "train_samples_per_second": "29.14",
+          "train_steps_per_second": "0.607",
+          "train_loss": "460.6",
+          "epoch": "285"
+        },
+        "cached": false
+      },
+      {
+        "returncode": 0,
+        "wall_time_s": 3299.5271285437047,
+        "eval_metrics": {
+          "eval_loss": "41.47",
+          "eval_wer": "0.1999",
+          "eval_runtime": "99.32",
+          "eval_samples_per_second": "26.29",
+          "eval_steps_per_second": "1.097",
+          "as_n_active": "3.143",
+          "as_frac": "0.0982",
+          "as_alpha_eff": "0.0393",
+          "epoch": "285"
+        },
+        "train_summary": {
+          "train_runtime": "3281",
+          "train_samples_per_second": "29.25",
+          "train_steps_per_second": "0.609",
+          "train_loss": "455.5",
+          "epoch": "285"
+        },
+        "cached": false
+      }
+    ],
+    "profile=libri_light_1hr_alpha=0.45_beta=0.0": [
+      {
+        "returncode": 0,
+        "wall_time_s": null,
+        "eval_metrics": {
+          "eval_loss": "42.7",
+          "eval_wer": "0.1992",
+          "eval_runtime": "85.28",
+          "eval_samples_per_second": "30.62",
+          "eval_steps_per_second": "1.278",
+          "as_n_active": "3.185",
+          "as_frac": "0.0995",
+          "as_alpha_eff": "0.0448",
+          "epoch": "285"
+        },
+        "train_summary": {
+          "train_runtime": "3246",
+          "train_samples_per_second": "29.57",
+          "train_steps_per_second": "0.616",
+          "train_loss": "476.2",
+          "epoch": "285"
+        },
+        "cached": true
+      },
+      {
+        "returncode": 0,
+        "wall_time_s": 3349.124992459081,
+        "eval_metrics": {
+          "eval_loss": "43.81",
+          "eval_wer": "0.214",
+          "eval_runtime": "97.31",
+          "eval_samples_per_second": "26.83",
+          "eval_steps_per_second": "1.12",
+          "as_n_active": "3.167",
+          "as_frac": "0.099",
+          "as_alpha_eff": "0.0445",
+          "epoch": "285"
+        },
+        "train_summary": {
+          "train_runtime": "3323",
+          "train_samples_per_second": "28.89",
+          "train_steps_per_second": "0.602",
+          "train_loss": "475.8",
+          "epoch": "285"
+        },
+        "cached": false
+      },
+      {
+        "returncode": 0,
+        "wall_time_s": 3327.539675847627,
+        "eval_metrics": {
+          "eval_loss": "42.63",
+          "eval_wer": "0.201",
+          "eval_runtime": "81.58",
+          "eval_samples_per_second": "32",
+          "eval_steps_per_second": "1.336",
+          "as_n_active": "3.163",
+          "as_frac": "0.0989",
+          "as_alpha_eff": "0.0445",
+          "epoch": "285"
+        },
+        "train_summary": {
+          "train_runtime": "3307",
+          "train_samples_per_second": "29.03",
+          "train_steps_per_second": "0.605",
+          "train_loss": "479.2",
+          "epoch": "285"
+        },
+        "cached": false
+      }
+    ],
+    "profile=libri_light_1hr_alpha=0.5_beta=0.0": [
+      {
+        "returncode": 0,
+        "wall_time_s": null,
+        "eval_metrics": {
+          "eval_loss": "42.27",
+          "eval_wer": "0.2008",
+          "eval_runtime": "78.96",
+          "eval_samples_per_second": "33.07",
+          "eval_steps_per_second": "1.38",
+          "as_n_active": "3.251",
+          "as_frac": "0.1016",
+          "as_alpha_eff": "0.0508",
+          "epoch": "285"
+        },
+        "train_summary": {
+          "train_runtime": "3161",
+          "train_samples_per_second": "30.37",
+          "train_steps_per_second": "0.633",
+          "train_loss": "496",
+          "epoch": "285"
+        },
+        "cached": true
+      },
+      {
+        "returncode": 0,
+        "wall_time_s": 3314.6607729699463,
+        "eval_metrics": {
+          "eval_loss": "41.77",
+          "eval_wer": "0.197",
+          "eval_runtime": "84.57",
+          "eval_samples_per_second": "30.88",
+          "eval_steps_per_second": "1.289",
+          "as_n_active": "3.236",
+          "as_frac": "0.1011",
+          "as_alpha_eff": "0.0506",
+          "epoch": "285"
+        },
+        "train_summary": {
+          "train_runtime": "3296",
+          "train_samples_per_second": "29.12",
+          "train_steps_per_second": "0.607",
+          "train_loss": "498.2",
+          "epoch": "285"
+        },
+        "cached": false
+      },
+      {
+        "returncode": 0,
+        "wall_time_s": 3233.158910676837,
+        "eval_metrics": {
+          "eval_loss": "44.32",
+          "eval_wer": "0.2113",
+          "eval_runtime": "79.02",
+          "eval_samples_per_second": "33.04",
+          "eval_steps_per_second": "1.379",
+          "as_n_active": "3.223",
+          "as_frac": "0.1007",
+          "as_alpha_eff": "0.0504",
+          "epoch": "285"
+        },
+        "train_summary": {
+          "train_runtime": "3215",
+          "train_samples_per_second": "29.86",
+          "train_steps_per_second": "0.622",
+          "train_loss": "492.7",
+          "epoch": "285"
+        },
+        "cached": false
+      }
+    ]
+  },
+  "summary": {
+    "profile=libri_light_1hr_alpha=0.4_beta=0.0": {
+      "n_total": 3,
+      "n_ok": 3,
+      "eval_wer": {
+        "values": [
+          0.1936,
+          0.1958,
+          0.1999
+        ],
+        "mean": 0.19643333333333332,
+        "std": 0.0031973947728319895
+      },
+      "eval_loss": {
+        "values": [
+          41.33,
+          40.18,
+          41.47
+        ],
+        "mean": 40.99333333333333,
+        "std": 0.7078370810669165
+      },
+      "train_runtime": {
+        "values": [
+          3283.0,
+          3295.0,
+          3281.0
+        ],
+        "mean": 3286.3333333333335,
+        "std": 7.571877794400365
+      }
+    },
+    "profile=libri_light_1hr_alpha=0.45_beta=0.0": {
+      "n_total": 3,
+      "n_ok": 3,
+      "eval_wer": {
+        "values": [
+          0.1992,
+          0.214,
+          0.201
+        ],
+        "mean": 0.20473333333333332,
+        "std": 0.00807547728207648
+      },
+      "eval_loss": {
+        "values": [
+          42.7,
+          43.81,
+          42.63
+        ],
+        "mean": 43.04666666666667,
+        "std": 0.6619919435562135
+      },
+      "train_runtime": {
+        "values": [
+          3246.0,
+          3323.0,
+          3307.0
+        ],
+        "mean": 3292.0,
+        "std": 40.63249930782009
+      }
+    },
+    "profile=libri_light_1hr_alpha=0.5_beta=0.0": {
+      "n_total": 3,
+      "n_ok": 3,
+      "eval_wer": {
+        "values": [
+          0.2008,
+          0.197,
+          0.2113
+        ],
+        "mean": 0.20303333333333334,
+        "std": 0.007406978691297361
+      },
+      "eval_loss": {
+        "values": [
+          42.27,
+          41.77,
+          44.32
+        ],
+        "mean": 42.78666666666667,
+        "std": 1.3512340039139517
+      },
+      "train_runtime": {
+        "values": [
+          3161.0,
+          3296.0,
+          3215.0
+        ],
+        "mean": 3224.0,
+        "std": 67.94850991743675
+      }
+    }
+  }
+}

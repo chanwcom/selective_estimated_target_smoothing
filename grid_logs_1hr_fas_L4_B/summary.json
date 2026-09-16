@@ -1,0 +1,215 @@
+{
+  "profile": "libri_light_1hr",
+  "results": {
+    "profile=libri_light_1hr_alpha=0.2_beta=0.025": [
+      {
+        "returncode": 0,
+        "wall_time_s": 3952.8364083450288,
+        "eval_metrics": {
+          "eval_loss": "38.54",
+          "eval_wer": "0.1963",
+          "eval_runtime": "94.53",
+          "eval_samples_per_second": "27.62",
+          "eval_steps_per_second": "1.153",
+          "fas_n_active": "3.698",
+          "fas_frac": "0.1156",
+          "fas_mass_eff": "0.0275",
+          "fas_mass_active_only": "0.0231",
+          "fas_n1_frac": "0.0073",
+          "epoch": "285"
+        },
+        "train_summary": {
+          "train_runtime": "3933",
+          "train_samples_per_second": "24.41",
+          "train_steps_per_second": "0.508",
+          "train_loss": "419.3",
+          "epoch": "285"
+        },
+        "cached": false
+      }
+    ],
+    "profile=libri_light_1hr_alpha=0.2_beta=0.075": [
+      {
+        "returncode": 0,
+        "wall_time_s": 3958.2724920292385,
+        "eval_metrics": {
+          "eval_loss": "40.49",
+          "eval_wer": "0.1942",
+          "eval_runtime": "87.98",
+          "eval_samples_per_second": "29.68",
+          "eval_steps_per_second": "1.239",
+          "fas_n_active": "3.749",
+          "fas_frac": "0.1171",
+          "fas_mass_eff": "0.0367",
+          "fas_mass_active_only": "0.0234",
+          "fas_n1_frac": "0.0065",
+          "epoch": "285"
+        },
+        "train_summary": {
+          "train_runtime": "3940",
+          "train_samples_per_second": "24.36",
+          "train_steps_per_second": "0.508",
+          "train_loss": "407.2",
+          "epoch": "285"
+        },
+        "cached": false
+      }
+    ],
+    "profile=libri_light_1hr_alpha=0.25_beta=0.025": [
+      {
+        "returncode": 0,
+        "wall_time_s": 3903.5561872893013,
+        "eval_metrics": {
+          "eval_loss": "40.07",
+          "eval_wer": "0.193",
+          "eval_runtime": "85.92",
+          "eval_samples_per_second": "30.39",
+          "eval_steps_per_second": "1.269",
+          "fas_n_active": "3.824",
+          "fas_frac": "0.1195",
+          "fas_mass_eff": "0.0354",
+          "fas_mass_active_only": "0.0299",
+          "fas_n1_frac": "0.0063",
+          "epoch": "285"
+        },
+        "train_summary": {
+          "train_runtime": "3885",
+          "train_samples_per_second": "24.71",
+          "train_steps_per_second": "0.515",
+          "train_loss": "433.5",
+          "epoch": "285"
+        },
+        "cached": false
+      }
+    ],
+    "profile=libri_light_1hr_alpha=0.25_beta=0.075": [
+      {
+        "returncode": 0,
+        "wall_time_s": 3910.7996662217192,
+        "eval_metrics": {
+          "eval_loss": "42.1",
+          "eval_wer": "0.1958",
+          "eval_runtime": "88.99",
+          "eval_samples_per_second": "29.34",
+          "eval_steps_per_second": "1.225",
+          "fas_n_active": "3.847",
+          "fas_frac": "0.1202",
+          "fas_mass_eff": "0.0466",
+          "fas_mass_active_only": "0.0301",
+          "fas_n1_frac": "0.0065",
+          "epoch": "285"
+        },
+        "train_summary": {
+          "train_runtime": "3892",
+          "train_samples_per_second": "24.67",
+          "train_steps_per_second": "0.514",
+          "train_loss": "434.4",
+          "epoch": "285"
+        },
+        "cached": false
+      }
+    ]
+  },
+  "summary": {
+    "profile=libri_light_1hr_alpha=0.2_beta=0.025": {
+      "n_total": 1,
+      "n_ok": 1,
+      "eval_wer": {
+        "values": [
+          0.1963
+        ],
+        "mean": 0.1963,
+        "std": 0.0
+      },
+      "eval_loss": {
+        "values": [
+          38.54
+        ],
+        "mean": 38.54,
+        "std": 0.0
+      },
+      "train_runtime": {
+        "values": [
+          3933.0
+        ],
+        "mean": 3933.0,
+        "std": 0.0
+      }
+    },
+    "profile=libri_light_1hr_alpha=0.2_beta=0.075": {
+      "n_total": 1,
+      "n_ok": 1,
+      "eval_wer": {
+        "values": [
+          0.1942
+        ],
+        "mean": 0.1942,
+        "std": 0.0
+      },
+      "eval_loss": {
+        "values": [
+          40.49
+        ],
+        "mean": 40.49,
+        "std": 0.0
+      },
+      "train_runtime": {
+        "values": [
+          3940.0
+        ],
+        "mean": 3940.0,
+        "std": 0.0
+      }
+    },
+    "profile=libri_light_1hr_alpha=0.25_beta=0.025": {
+      "n_total": 1,
+      "n_ok": 1,
+      "eval_wer": {
+        "values": [
+          0.193
+        ],
+        "mean": 0.193,
+        "std": 0.0
+      },
+      "eval_loss": {
+        "values": [
+          40.07
+        ],
+        "mean": 40.07,
+        "std": 0.0
+      },
+      "train_runtime": {
+        "values": [
+          3885.0
+        ],
+        "mean": 3885.0,
+        "std": 0.0
+      }
+    },
+    "profile=libri_light_1hr_alpha=0.25_beta=0.075": {
+      "n_total": 1,
+      "n_ok": 1,
+      "eval_wer": {
+        "values": [
+          0.1958
+        ],
+        "mean": 0.1958,
+        "std": 0.0
+      },
+      "eval_loss": {
+        "values": [
+          42.1
+        ],
+        "mean": 42.1,
+        "std": 0.0
+      },
+      "train_runtime": {
+        "values": [
+          3892.0
+        ],
+        "mean": 3892.0,
+        "std": 0.0
+      }
+    }
+  }
+}

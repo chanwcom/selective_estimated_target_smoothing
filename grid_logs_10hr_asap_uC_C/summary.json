@@ -1,0 +1,169 @@
+{
+  "profile": "libri_light_10hr",
+  "results": {
+    "profile=libri_light_10hr_alpha=0.1_beta=0.0": [
+      {
+        "returncode": 0,
+        "wall_time_s": 8737.343827982899,
+        "eval_metrics": {
+          "eval_loss": "24.34",
+          "eval_wer": "0.0998",
+          "eval_runtime": "131.4",
+          "eval_samples_per_second": "19.87",
+          "eval_steps_per_second": "1.659",
+          "asap_n_active": "1.196",
+          "asap_frac": "0.0374",
+          "asap_mass_eff": "0.0037",
+          "asap_mass_active_only": "0.0037",
+          "asap_n1_frac": "0.8246",
+          "asap_disagree": "4.04",
+          "asap_unreachable_active": "0.0117",
+          "epoch": "85"
+        },
+        "train_summary": {
+          "train_runtime": "8718",
+          "train_samples_per_second": "22.02",
+          "train_steps_per_second": "0.459",
+          "train_loss": "190.7",
+          "epoch": "85"
+        },
+        "cached": false
+      }
+    ],
+    "profile=libri_light_10hr_alpha=0.15_beta=0.0": [
+      {
+        "returncode": 0,
+        "wall_time_s": 8811.228722395841,
+        "eval_metrics": {
+          "eval_loss": "25.44",
+          "eval_wer": "0.1036",
+          "eval_runtime": "141.1",
+          "eval_samples_per_second": "18.5",
+          "eval_steps_per_second": "1.545",
+          "asap_n_active": "1.276",
+          "asap_frac": "0.0399",
+          "asap_mass_eff": "0.006",
+          "asap_mass_active_only": "0.006",
+          "asap_n1_frac": "0.7547",
+          "asap_disagree": "3.997",
+          "asap_unreachable_active": "0.0126",
+          "epoch": "85"
+        },
+        "train_summary": {
+          "train_runtime": "8793",
+          "train_samples_per_second": "21.84",
+          "train_steps_per_second": "0.455",
+          "train_loss": "190.8",
+          "epoch": "85"
+        },
+        "cached": false
+      }
+    ],
+    "profile=libri_light_10hr_alpha=0.2_beta=0.0": [
+      {
+        "returncode": 0,
+        "wall_time_s": 8943.357537468895,
+        "eval_metrics": {
+          "eval_loss": "24.47",
+          "eval_wer": "0.1025",
+          "eval_runtime": "138.4",
+          "eval_samples_per_second": "18.87",
+          "eval_steps_per_second": "1.575",
+          "asap_n_active": "1.345",
+          "asap_frac": "0.042",
+          "asap_mass_eff": "0.0084",
+          "asap_mass_active_only": "0.0084",
+          "asap_n1_frac": "0.7093",
+          "asap_disagree": "4.067",
+          "asap_unreachable_active": "0.0127",
+          "epoch": "85"
+        },
+        "train_summary": {
+          "train_runtime": "8925",
+          "train_samples_per_second": "21.51",
+          "train_steps_per_second": "0.448",
+          "train_loss": "194.3",
+          "epoch": "85"
+        },
+        "cached": false
+      }
+    ]
+  },
+  "summary": {
+    "profile=libri_light_10hr_alpha=0.1_beta=0.0": {
+      "n_total": 1,
+      "n_ok": 1,
+      "eval_wer": {
+        "values": [
+          0.0998
+        ],
+        "mean": 0.0998,
+        "std": 0.0
+      },
+      "eval_loss": {
+        "values": [
+          24.34
+        ],
+        "mean": 24.34,
+        "std": 0.0
+      },
+      "train_runtime": {
+        "values": [
+          8718.0
+        ],
+        "mean": 8718.0,
+        "std": 0.0
+      }
+    },
+    "profile=libri_light_10hr_alpha=0.15_beta=0.0": {
+      "n_total": 1,
+      "n_ok": 1,
+      "eval_wer": {
+        "values": [
+          0.1036
+        ],
+        "mean": 0.1036,
+        "std": 0.0
+      },
+      "eval_loss": {
+        "values": [
+          25.44
+        ],
+        "mean": 25.44,
+        "std": 0.0
+      },
+      "train_runtime": {
+        "values": [
+          8793.0
+        ],
+        "mean": 8793.0,
+        "std": 0.0
+      }
+    },
+    "profile=libri_light_10hr_alpha=0.2_beta=0.0": {
+      "n_total": 1,
+      "n_ok": 1,
+      "eval_wer": {
+        "values": [
+          0.1025
+        ],
+        "mean": 0.1025,
+        "std": 0.0
+      },
+      "eval_loss": {
+        "values": [
+          24.47
+        ],
+        "mean": 24.47,
+        "std": 0.0
+      },
+      "train_runtime": {
+        "values": [
+          8925.0
+        ],
+        "mean": 8925.0,
+        "std": 0.0
+      }
+    }
+  }
+}
