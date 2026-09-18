@@ -47,6 +47,7 @@ import ast
 import itertools
 import json
 import os
+import re
 import statistics
 import subprocess
 import sys
@@ -103,6 +104,57 @@ def _fmt(x: float) -> str:
     return str(x).replace(".", "p").replace("-", "neg")
 
 
+_EVAL_METRIC_RE = re.compile(r"^eval_(?:.+_)?(?:wer|loss)$")
+
+
+def _is_eval_dict(parsed: Dict[str, Any]) -> bool:
+    """True for a Trainer eval line, under either metric naming.
+
+    With one eval dataset Trainer prefixes metrics "eval_" and the WER
+    lands as "eval_wer". With a dict of eval datasets -- which is the
+    default now that runs evaluate on dev-clean AND dev-other -- it
+    prefixes per key instead, so the same run emits "eval_dev-clean_wer"
+    and "eval_dev-other_wer" in two separate lines and NO bare "eval_wer".
+    Keying off the literal "eval_wer" therefore made every multi-split run
+    look crashed to `try_load_cached`, which would silently re-run a
+    finished grid.
+    """
+    return any(_EVAL_METRIC_RE.match(k) for k in parsed)
+
+
+def _eval_metric_keys(ok_runs: List[Dict[str, Any]]) -> List[str]:
+    """Every eval metric name present, in first-seen order."""
+    keys: List[str] = []
+    for r in ok_runs:
+        if not r.get("eval_metrics"):
+            continue
+        for k in r["eval_metrics"]:
+            if _EVAL_METRIC_RE.match(k) and k not in keys:
+                keys.append(k)
+    return keys
+
+
+def _primary_wer_key(summary: Dict[str, Any]) -> Optional[str]:
+    """The WER key to headline a cell with.
+
+    Prefers dev-other -- the split that separates methods -- then any
+    other dev split, then a bare eval_wer from a pre-dev-default log.
+    Deliberately does NOT reuse the "eval_wer" name for a dev number:
+    old summary.json files carry test-clean under that key and the two
+    must not end up in one column.
+    """
+    for k in summary:
+        if _EVAL_METRIC_RE.match(k) and k.endswith("_wer") and "other" in k:
+            return k
+    for k in summary:
+        if _EVAL_METRIC_RE.match(k) and k.endswith("_wer") and "dev" in k:
+            return k
+    for k in summary:
+        if _EVAL_METRIC_RE.match(k) and k.endswith("wer"):
+            return k
+    return None
+
+
 def try_load_cached(log_path: Path) -> Optional[Dict[str, Any]]:
     """If `log_path` exists and its content parses out both a final
     eval_metrics dict (with eval_wer) and a train_summary dict (with
@@ -124,8 +176,14 @@ def try_load_cached(log_path: Path) -> Optional[Dict[str, Any]]:
                     continue
                 if not isinstance(parsed, dict):
                     continue
-                if "eval_wer" in parsed:
-                    eval_metrics = parsed
+                if _is_eval_dict(parsed):
+                    # Merge rather than replace: a multi-split run emits
+                    # one line per split, and a later step's value for a
+                    # key should win over an earlier step's.
+                    if eval_metrics is None:
+                        eval_metrics = dict(parsed)
+                    else:
+                        eval_metrics.update(parsed)
                 elif "train_runtime" in parsed:
                     train_summary = parsed
     if eval_metrics is None or train_summary is None:
@@ -175,8 +233,14 @@ def run_one(script: str, alpha: float, beta: float, seed: int, profile: str,
                     continue
                 if not isinstance(parsed, dict):
                     continue
-                if "eval_wer" in parsed:
-                    eval_metrics = parsed
+                if _is_eval_dict(parsed):
+                    # Merge rather than replace: a multi-split run emits
+                    # one line per split, and a later step's value for a
+                    # key should win over an earlier step's.
+                    if eval_metrics is None:
+                        eval_metrics = dict(parsed)
+                    else:
+                        eval_metrics.update(parsed)
                 elif "train_runtime" in parsed:
                     train_summary = parsed
 
@@ -196,11 +260,9 @@ def summarize_cell(results: List[Dict[str, Any]]) -> Dict[str, Any]:
         if r["returncode"] == 0 and r["eval_metrics"] is not None
     ]
     summary: Dict[str, Any] = {"n_total": len(results), "n_ok": len(ok_runs)}
-    for key, source in (
-        ("eval_wer", "eval_metrics"),
-        ("eval_loss", "eval_metrics"),
-        ("train_runtime", "train_summary"),
-    ):
+    pairs = [(k, "eval_metrics") for k in _eval_metric_keys(ok_runs)]
+    pairs.append(("train_runtime", "train_summary"))
+    for key, source in pairs:
         # The trainer emits these as quoted strings ('eval_wer': '0.1974'),
         # not numbers, so they have to be coerced before statistics sees
         # them. Left uncoerced this raised TypeError at the END of a cell,
@@ -228,7 +290,9 @@ def summarize_cell(results: List[Dict[str, Any]]) -> Dict[str, Any]:
 def print_grid(profile: str, alphas: List[float], betas: List[float],
                cell_summaries: Dict[Tuple[float, float], Dict[str, Any]],
                ) -> None:
-    print(f"\n{'='*70}\neval_wer grid, {profile} "
+    label = next((_primary_wer_key(cs) for cs in cell_summaries.values()
+                  if _primary_wer_key(cs)), "eval_wer")
+    print(f"\n{'='*70}\n{label} grid, {profile} "
           f"(mean ± std over seeds)\n{'='*70}")
     header = "alpha\\beta".ljust(10) + "".join(f"{b:>16.2f}" for b in betas)
     print(header)
@@ -236,8 +300,9 @@ def print_grid(profile: str, alphas: List[float], betas: List[float],
         row = f"{a:<10.3f}"
         for b in betas:
             s = cell_summaries.get((a, b), {})
-            if "eval_wer" in s:
-                m, sd = s["eval_wer"]["mean"], s["eval_wer"]["std"]
+            key = _primary_wer_key(s)
+            if key:
+                m, sd = s[key]["mean"], s[key]["std"]
                 row += f"{m:>9.4f}±{sd:<5.4f}"
             else:
                 row += f"{'n/a':>16}"
@@ -300,9 +365,10 @@ def main() -> None:
 
         cell_summary = summarize_cell(cell_results)
         cell_summaries[(alpha, beta)] = cell_summary
-        wer = cell_summary.get("eval_wer", {})
+        _key = _primary_wer_key(cell_summary) or "eval_wer"
+        wer = cell_summary.get(_key, {})
         print(f"  -> alpha={alpha} beta={beta}: "
-              f"eval_wer mean={wer.get('mean', float('nan')):.4f} "
+              f"{_key} mean={wer.get('mean', float('nan')):.4f} "
               f"std={wer.get('std', float('nan')):.4f} "
               f"({cell_summary['n_ok']}/{cell_summary['n_total']} OK)")
         all_results[cell_key] = cell_results

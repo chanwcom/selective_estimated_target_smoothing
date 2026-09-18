@@ -1050,8 +1050,18 @@ def parse_args():
              "'<db_top_dir>/<train_subdir of --finetune_profile>'.")
     parser.add_argument(
         "--test_top_dir", type=str, default=None,
-        help="Evaluation dataset directory. Defaults to "
-             "'<db_top_dir>/librispeech/webdataset/test-clean'.")
+        help="Evaluation dataset directory. Overrides --eval_splits and "
+             "evaluates on that one directory alone.")
+    parser.add_argument(
+        "--eval_splits", type=str, default="dev-clean,dev-other",
+        help="Comma-separated splits under "
+             "'<db_top_dir>/librispeech/webdataset' to evaluate on every "
+             "--eval_steps. Development sets are the default because the "
+             "test sets must not steer any choice made during a run. More "
+             "than one split is passed to HF Trainer as a dict, which it "
+             "supports natively and reports as 'eval_<split>_wer'; the "
+             "single-split case keeps the plain 'eval_wer' key. Ignored "
+             "when --test_top_dir is given.")
     parser.add_argument(
         "--resource_top_dir", type=str, default=_DEFAULT_RESOURCE_TOP_DIR,
         help="Directory containing shared resources referenced by name, "
@@ -1294,8 +1304,16 @@ def main():
     # --finetune_profile's default train_subdir.
     train_top_dir = args.train_top_dir or os.path.join(
         args.db_top_dir, args.train_subdir)
-    test_top_dir = args.test_top_dir or os.path.join(
-        args.db_top_dir, "librispeech/webdataset/test-clean")
+    if args.test_top_dir:
+        eval_top_dirs = {None: args.test_top_dir}
+    else:
+        eval_top_dirs = {
+            name: os.path.join(args.db_top_dir, "librispeech/webdataset",
+                               name)
+            for name in (x.strip() for x in args.eval_splits.split(","))
+            if name}
+    if not eval_top_dirs:
+        raise ValueError("--eval_splits resolved to nothing")
 
     processor = AutoProcessor.from_pretrained("facebook/wav2vec2-base")
 
@@ -1347,9 +1365,17 @@ def main():
             sub_shard_dirs=args.train_shard_subdirs,
             max_sample_length=args.max_sample_audio_len,
             seed=args.seed)
-    test_dataset = sample_util.make_dataset(
-        test_top_dir, True, spm_model_path,
-        max_sample_length=args.max_sample_audio_len)
+    # A dict with one entry would make Trainer emit "eval_None_wer", so the
+    # single-split case is unwrapped back to a bare dataset.
+    eval_datasets = {
+        name: sample_util.make_dataset(
+            top_dir, True, spm_model_path,
+            max_sample_length=args.max_sample_audio_len)
+        for name, top_dir in eval_top_dirs.items()}
+    if len(eval_datasets) == 1:
+        eval_dataset = next(iter(eval_datasets.values()))
+    else:
+        eval_dataset = eval_datasets
 
     actual_vocab_size = len(processor.tokenizer)
 
@@ -1436,7 +1462,7 @@ def main():
         model=model,
         args=training_args,
         train_dataset=train_dataset,
-        eval_dataset=test_dataset,
+        eval_dataset=eval_dataset,
         processing_class=processor,
         data_collator=data_collator,
         compute_metrics=make_compute_metrics(processor),
