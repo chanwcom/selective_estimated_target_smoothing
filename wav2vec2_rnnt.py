@@ -335,9 +335,14 @@ def main():
             batch_size=args.batch_size,
             length_bucket_window_mult=args.length_bucket_window_mult,
             max_sample_length=args.max_sample_audio_len, seed=args.seed)
-    dev_ds = sample_util.make_dataset(
-        os.path.join(db, "librispeech/webdataset/dev-clean"), True, spm,
-        max_sample_length=args.max_sample_audio_len)
+    # Periodic eval runs on BOTH dev splits. One split is not enough to
+    # pick anything: dev-clean's spread across methods is smaller than the
+    # seed-to-seed spread, so dev-other is what carries the signal.
+    dev_sets = {
+        name: sample_util.make_dataset(
+            os.path.join(db, f"librispeech/webdataset/{name}"), True, spm,
+            max_sample_length=args.max_sample_audio_len)
+        for name in ("dev-clean", "dev-other")}
 
     model = RnntModel(vocab, joint_dim=args.joint_dim,
                       predictor_context=args.predictor_context,
@@ -496,25 +501,35 @@ def main():
             elif step % args.eval_steps == 0 or step == max_steps:
                 import evaluate
                 wer = evaluate.load("wer")
-                hyps, refs = [], []
-                for db_batch in DataLoader(dev_ds, batch_size=8,
-                                            collate_fn=collator):
-                    if len(refs) >= args.eval_examples:
-                        break
-                    hyps += greedy_decode(model, processor, db_batch,
-                                          args.device)
-                    rl = db_batch["labels"].clone()
-                    rl = rl.masked_fill(rl == -100, blank)
-                    refs += [clean_special_tokens(t) for t in
-                             processor.tokenizer.batch_decode(
-                                 rl, group_tokens=False)]
-                n = min(len(hyps), len(refs), args.eval_examples)
-                print(f"[{step}] dev-clean WER={wer.compute(
-                    predictions=hyps[:n], references=refs[:n]):.5f} "
-                      f"(n={n})  e.g. {hyps[0][:60]!r}", flush=True)
+                out = []
+                for name, ds in dev_sets.items():
+                    hyps, refs = [], []
+                    for db_batch in DataLoader(ds, batch_size=8,
+                                               collate_fn=collator):
+                        if len(refs) >= args.eval_examples:
+                            break
+                        hyps += greedy_decode(model, processor, db_batch,
+                                              args.device)
+                        rl = db_batch["labels"].clone()
+                        rl = rl.masked_fill(rl == -100, blank)
+                        refs += [clean_special_tokens(t) for t in
+                                 processor.tokenizer.batch_decode(
+                                     rl, group_tokens=False)]
+                    n = min(len(hyps), len(refs), args.eval_examples)
+                    w = wer.compute(predictions=hyps[:n], references=refs[:n])
+                    out.append(f"{name}={w:.5f}(n={n})")
+                    if name == "dev-clean":
+                        example = hyps[0][:55]
+                print(f"[{step}] " + "  ".join(out) +
+                      f"  e.g. {example!r}", flush=True)
+    peak = (torch.cuda.max_memory_allocated() / 2**30
+            if args.device == "cuda" else 0.0)
+    print(f"[done] steps={step} peak={peak:.2f}GiB dropped={dropped} "
+          f"wall={(time.time()-t0)/60:.1f}min", flush=True)
     if args.output_dir:
         os.makedirs(args.output_dir, exist_ok=True)
-        torch.save({"model": model.state_dict(), "args": vars(args)},
+        torch.save({"model": model.state_dict(), "args": vars(args),
+                    "peak_gib": peak, "steps": step},
                    os.path.join(args.output_dir, "rnnt.pt"))
         print(f"saved to {args.output_dir}", flush=True)
 
