@@ -260,7 +260,13 @@ def build_processor(vocab_size: Optional[int]) -> AutoProcessor:
     return processor, spm_model_path
 
 
-def build_beam_search_decoder(processor, beam_size: int = 50):
+def build_beam_search_decoder(processor, beam_size: int = 50,
+                              lexicon: str = None, lm: str = None,
+                              lm_weight: float = 2.0,
+                              word_score: float = 0.0,
+                              sil_score: float = 0.0,
+                              beam_size_token: int = None,
+                              beam_threshold: float = 50.0):
     """Builds a torchaudio CTC beam search decoder for the given tokenizer.
 
     Returns:
@@ -315,21 +321,51 @@ def build_beam_search_decoder(processor, beam_size: int = 50):
     # will render it as the literal unk piece (typically "⁇"), leaking
     # into the output text -- so the caller must strip
     # `synthetic_sil_token_id` from the hypothesis before decoding.
-    using_real_sil_token = "|" in vocab
-    sil_token = "|" if using_real_sil_token else processor.tokenizer.unk_token
-    synthetic_sil_token_id = (
-        None if using_real_sil_token
-        else processor.tokenizer.convert_tokens_to_ids(sil_token))
+    # Word-boundary handling depends on whether we decode with a lexicon.
+    #
+    # Lexicon-free: there is no word-boundary token in the stream at all,
+    # so the stand-in described above applies (unk for the SPM vocab).
+    #
+    # Lexicon + word-level LM: the boundary token is a real part of every
+    # spelling, so it must be a token the model actually emits. The SPM
+    # unigram-32 vocab is character-level with a standalone U+2581 piece
+    # ("HELLO WORLD" tokenizes as "_ H E L L O _ W O R L D"), so U+2581 is
+    # that token, and `--lexicon` must list spellings in the same leading-
+    # marker form ("_ H E L L O"). Nothing gets stripped in this case:
+    # SentencePiece's own decode() already renders U+2581 as a space.
+    if lexicon is not None:
+        sil_token = "|" if "|" in vocab else "\u2581"
+        if sil_token not in vocab:
+            raise ValueError(
+                "Lexicon decoding needs a word-boundary token present in "
+                f"the vocab; neither '|' nor U+2581 is. Vocab: {tokens}")
+        synthetic_sil_token_id = None
+    else:
+        using_real_sil_token = "|" in vocab
+        sil_token = ("|" if using_real_sil_token
+                     else processor.tokenizer.unk_token)
+        synthetic_sil_token_id = (
+            None if using_real_sil_token
+            else processor.tokenizer.convert_tokens_to_ids(sil_token))
+
+    kwargs = {}
+    if beam_size_token is not None:
+        kwargs["beam_size_token"] = beam_size_token
 
     beam_decoder = torchaudio_decoder.ctc_decoder(
-        lexicon=None,
+        lexicon=lexicon,
         tokens=tokens,
-        lm=None,
+        lm=lm,
         nbest=1,
         beam_size=beam_size,
+        beam_threshold=beam_threshold,
+        lm_weight=lm_weight,
+        word_score=word_score,
+        sil_score=sil_score,
         blank_token=processor.tokenizer.pad_token,
         sil_token=sil_token,
         log_add=True,
+        **kwargs,
     )
     return beam_decoder, synthetic_sil_token_id
 
@@ -405,9 +441,42 @@ def parse_args():
         help="Beam size for --decoder=beam_search. Ignored (no effect) "
              "for --decoder=pipeline, which always decodes greedily.")
     parser.add_argument(
-        "--test_split", choices=["test-clean", "test-other"],
+        "--test_split",
+        choices=["test-clean", "test-other", "dev-clean", "dev-other"],
         default="test-clean",
-        help="Which LibriSpeech test split to evaluate on.")
+        help="Which LibriSpeech split to evaluate on. The dev splits are "
+             "there for tuning anything that must not be fitted on test "
+             "(beam size, LM weight, word score); report on the test "
+             "splits only.")
+    parser.add_argument(
+        "--lexicon", type=str, default=None,
+        help="Path to a lexicon file for lexicon-constrained beam search: "
+             "one 'word<TAB>tok tok ...' line per word, with the spelling "
+             "written in this checkpoint's own token inventory. Required "
+             "to use --lm (flashlight's word-level LM needs a lexicon). "
+             "Omit for the lexicon-free decoding used so far.")
+    parser.add_argument(
+        "--lm", type=str, default=None,
+        help="Path to a KenLM binary (e.g. LibriSpeech 4-gram lm.bin). "
+             "Requires --lexicon. Its word list must match the lexicon's "
+             "keys (the official LibriSpeech lexicon is lowercase).")
+    parser.add_argument(
+        "--lm_weight", type=float, default=2.0,
+        help="LM weight for --lm. Tune on dev-clean/dev-other, never on "
+             "the test splits.")
+    parser.add_argument(
+        "--word_score", type=float, default=0.0,
+        help="Word insertion bonus for --lm. Tune on dev, not on test.")
+    parser.add_argument(
+        "--sil_score", type=float, default=0.0,
+        help="Silence insertion score for lexicon decoding.")
+    parser.add_argument(
+        "--beam_size_token", type=int, default=None,
+        help="Max tokens expanded per frame (torchaudio default: full "
+             "vocab). Lowering it is the main speed knob for LM decoding.")
+    parser.add_argument(
+        "--beam_threshold", type=float, default=50.0,
+        help="Score pruning threshold for beam search.")
     parser.add_argument(
         "--batch_size", type=int, default=8,
         help="Evaluation batch size.")
@@ -456,8 +525,16 @@ def main():
             batch_size=args.batch_size,
         )
     else:
+        if args.lm is not None and args.lexicon is None:
+            raise ValueError("--lm requires --lexicon (flashlight's "
+                             "word-level LM is looked up through the "
+                             "lexicon's word list).")
         beam_decoder, synthetic_sil_token_id = build_beam_search_decoder(
-            processor, beam_size=args.beam_size)
+            processor, beam_size=args.beam_size, lexicon=args.lexicon,
+            lm=args.lm, lm_weight=args.lm_weight,
+            word_score=args.word_score, sil_score=args.sil_score,
+            beam_size_token=args.beam_size_token,
+            beam_threshold=args.beam_threshold)
 
     ref_list: List[str] = []
     hyp_list: List[str] = []
@@ -513,6 +590,10 @@ def main():
         "test_split": args.test_split,
         "decoder": args.decoder,
         "beam_size": args.beam_size if args.decoder == "beam_search" else None,
+        "lm": args.lm,
+        "lexicon": args.lexicon,
+        "lm_weight": args.lm_weight if args.lm else None,
+        "word_score": args.word_score if args.lm else None,
         "num_examples": num_examples,
     }
     print(result)
