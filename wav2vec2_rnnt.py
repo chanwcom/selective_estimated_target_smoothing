@@ -87,6 +87,14 @@ class StatelessPredictor(nn.Module):
         win = padded[:, idx]                                   # (B, U+1, C)
         return self.proj(self.embed(win).flatten(2))
 
+    def step(self, last_label, state):
+        """Same interface as LstmPredictor.step; `state` is the label window."""
+        if state is None:
+            state = last_label.new_full((last_label.shape[0], self.context),
+                                        self.blank)
+        win = torch.cat([state[:, 1:], last_label.unsqueeze(1)], dim=1)
+        return self.proj(self.embed(win).flatten(1)), win
+
 
 class LstmPredictor(nn.Module):
     """Single-layer LSTM over the emitted labels, blank-prepended.
@@ -111,6 +119,17 @@ class LstmPredictor(nn.Module):
         seq = torch.cat([start, labels.clamp(min=0)], dim=1)   # (B, U+1)
         out, _ = self.rnn(self.embed(seq))
         return out                                             # (B, U+1, H)
+
+    def step(self, last_label, state):
+        """One incremental step, for decoding.
+
+        Recomputing `forward` over the whole prefix at every frame costs
+        O(T*U) LSTM work per utterance, which is what made full-split
+        evaluation unaffordable (0.67 s per utterance). Carrying the state
+        makes it O(T + U).
+        """
+        out, new_state = self.rnn(self.embed(last_label).unsqueeze(1), state)
+        return out[:, 0], new_state
 
 
 class RnntModel(nn.Module):
@@ -171,7 +190,8 @@ def parse_args():
     p.add_argument("--beta", type=float, default=0.0)
     p.add_argument("--alpha_mode", default="fixed",
                    choices=["fixed", "active_support",
-                            "floored_active_support", "asap"])
+                            "floored_active_support",
+                            "frame_label_support", "asap"])
     p.add_argument("--fas_eps", type=float, default=1e-10)
     p.add_argument("--max_steps", type=int, default=None)
     p.add_argument("--warmup_steps", type=int, default=None)
@@ -240,11 +260,31 @@ def parse_args():
                         "heads are random, so a single LR either wrecks "
                         "the encoder or starves the heads.")
     p.add_argument("--eval_steps", type=int, default=250)
-    p.add_argument("--eval_examples", type=int, default=200)
+    p.add_argument("--eval_examples", type=int, default=200,
+                   help="Utterances per split for the PERIODIC eval. 200 is "
+                        "about 4000 reference words, whose sampling error "
+                        "(~0.004 WER) is larger than the differences between "
+                        "methods (0.001-0.003) -- it is a curve to watch, "
+                        "not a number to compare.")
+    p.add_argument("--final_eval_examples", type=int, default=0,
+                   help="Utterances per split for the eval at --max_steps. "
+                        "0 means the whole split, which is what makes that "
+                        "one comparable.")
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--output_dir", default=None)
     p.add_argument("--log_every", type=int, default=25)
     p.add_argument("--device", default="cuda")
+    p.add_argument("--gpu_memory_fraction", type=float, default=None,
+                   help="Cap the fraction of the card this process may use. "
+                        "Its purpose here is to rehearse a smaller card on a "
+                        "bigger one: 23/31.4 = 0.73 makes a 32 GB 5090 behave "
+                        "like a 24 GB 4090, so whether the run fits there is "
+                        "measured rather than extrapolated. Note the log's "
+                        "`peak` is max_memory_ALLOCATED, which is well below "
+                        "what the process holds on the card -- 20.90 vs "
+                        "27.70 GiB was measured at --max_batch_audio_len "
+                        "6400000 -- so the allocated figure must not be "
+                        "compared against card capacity directly.")
     p.add_argument("--grad_accum", type=int, default=1,
                    help="Micro-batches per optimizer step. Pair with a "
                         "halved --max_batch_audio_len to keep the effective "
@@ -272,29 +312,80 @@ def build_processor(vocab_size):
 
 @torch.no_grad()
 def greedy_decode(model, processor, batch, device, max_symbols=5):
-    """Frame-synchronous greedy transducer decode, for the sanity eval."""
+    """Frame-synchronous greedy transducer decode, batched.
+
+    Every utterance in the batch advances one frame per outer iteration,
+    so the Python loop runs T_max times rather than sum_b T_b, and the
+    predictor is stepped incrementally instead of re-run over the whole
+    prefix. Together those took a 400-utterance evaluation from 4.5 min to
+    seconds, which is what makes evaluating the full dev splits -- 5567
+    utterances -- affordable at all; at the old cost a single full eval was
+    62 min against 2.1 h of training.
+
+    The emitted sequence is identical to the per-utterance version: the
+    same argmax is taken in the same order, only the batching changes.
+    """
     model.eval()
-    enc, enc_lens = model.encode(batch["input_values"].to(device),
-                                 batch["attention_mask"].to(device))
-    b = enc.shape[0]
+    # cuDNN's fused LSTM gives a different answer for a length-41 call than
+    # for 41 length-1 calls -- measured 2.6e-3 relative, which is enough to
+    # flip an argmax at a borderline frame and then diverge for the rest of
+    # the utterance (19 of 32 hypotheses differed). The step-by-step path is
+    # the one decoding must use, so cuDNN is disabled here; with it off the
+    # two agree exactly (0.0e0, and to 3e-15 in float64 on CPU). The
+    # predictor is a single 320-unit layer, so the 4.8x slowdown on that one
+    # module is small against the encoder and the Python loop.
+    _cudnn = torch.backends.cudnn.enabled
+    torch.backends.cudnn.enabled = False
+    try:
+        enc, enc_lens = model.encode(batch["input_values"].to(device),
+                                     batch["attention_mask"].to(device))
+        return _greedy_decode_inner(model, processor, enc, enc_lens,
+                                     max_symbols)
+    finally:
+        torch.backends.cudnn.enabled = _cudnn
+        model.train()
+
+
+@torch.no_grad()
+def _greedy_decode_inner(model, processor, enc, enc_lens, max_symbols):
+    device = enc.device
+    b, t_max, _ = enc.shape
+    blank = model.blank
+    last = torch.full((b,), blank, dtype=torch.long, device=device)
+    state = None
+    pred, state = model.predictor.step(last, state)     # state after u = 0
     hyps = [[] for _ in range(b)]
-    for i in range(b):
-        t = 0
-        while t < int(enc_lens[i]):
-            emitted = 0
-            while emitted < max_symbols:
-                lab = (torch.tensor([hyps[i]], device=device)
-                       if hyps[i] else
-                       torch.zeros((1, 0), dtype=torch.long, device=device))
-                pred = model.predictor(lab)[:, -1]              # (1, J)
-                logit = model.out(torch.tanh(enc[i, t] + pred))  # (1, C)
-                k = int(logit.argmax(-1))
-                if k == model.blank:
-                    break
-                hyps[i].append(k)
-                emitted += 1
-            t += 1
-    model.train()
+    n_emit = torch.zeros(b, dtype=torch.long, device=device)
+    for t in range(t_max):
+        alive = (t < enc_lens.to(device))
+        if not bool(alive.any()):
+            break
+        n_emit.zero_()
+        for _ in range(max_symbols):
+            logit = model.out(torch.tanh(enc[:, t] + pred))      # (B, C)
+            k = logit.argmax(-1)
+            # An utterance keeps emitting only while it is alive, has not
+            # hit the per-frame cap, and did not just produce blank.
+            emit = alive & (k != blank) & (n_emit < max_symbols)
+            if not bool(emit.any()):
+                break
+            idx = torch.nonzero(emit, as_tuple=True)[0]
+            for i in idx.tolist():
+                hyps[i].append(int(k[i]))
+            n_emit = n_emit + emit.long()
+            # Step the predictor only for the utterances that emitted; the
+            # others must keep their state, so the new state is merged in.
+            new_pred, new_state = model.predictor.step(
+                torch.where(emit, k, last), state)
+            m = emit.view(-1, 1)
+            pred = torch.where(m, new_pred, pred)
+            if isinstance(state, tuple):
+                state = tuple(
+                    torch.where(emit.view(1, -1, 1), n, o)
+                    for n, o in zip(new_state, state))
+            else:
+                state = torch.where(m, new_state, state)
+            last = torch.where(emit, k, last)
     return [clean_special_tokens(processor.tokenizer.decode(
         h, group_tokens=False)) for h in hyps]
 
@@ -307,6 +398,12 @@ def main():
     max_steps = args.max_steps or prof["max_steps"]
     warmup = args.warmup_steps if args.warmup_steps is not None else prof[
         "warmup_steps"]
+
+    if args.gpu_memory_fraction and args.device == "cuda":
+        torch.cuda.set_per_process_memory_fraction(args.gpu_memory_fraction)
+        print(f"[mem] capped at {args.gpu_memory_fraction:.3f} of the card "
+              f"({args.gpu_memory_fraction * torch.cuda.get_device_properties(0).total_memory / 2**30:.1f} GiB)",
+              flush=True)
 
     processor, spm = build_processor(args.vocab_size)
     vocab = len(processor.tokenizer)
@@ -475,10 +572,13 @@ def main():
             if step % args.log_every == 0:
                 peak = (torch.cuda.max_memory_allocated() / 2**30
                         if args.device == "cuda" else 0.0)
+                resv = (torch.cuda.max_memory_reserved() / 2**30
+                        if args.device == "cuda" else 0.0)
                 print(f"[{step}/{max_steps}] loss={run_loss/run_n:.3f} "
                       f"lr={sched.get_last_lr()[0]:.2e} "
                       f"B={logits.shape[0]} T={logits.shape[1]} "
-                      f"U={logits.shape[2]-1} peak={peak:.2f}GiB "
+                      f"U={logits.shape[2]-1} alloc={peak:.2f} "
+                      f"resv={resv:.2f}GiB "
                       f"dropped={dropped} "
                       f"{(time.time()-t0)/step:.2f}s/step", flush=True)
                 run_loss, run_n = 0.0, 0
@@ -504,9 +604,12 @@ def main():
                 out = []
                 for name, ds in dev_sets.items():
                     hyps, refs = [], []
-                    for db_batch in DataLoader(ds, batch_size=8,
+                    cap = (args.final_eval_examples if step == max_steps
+                           else args.eval_examples)
+                    cap = cap or 10 ** 9
+                    for db_batch in DataLoader(ds, batch_size=32,
                                                collate_fn=collator):
-                        if len(refs) >= args.eval_examples:
+                        if len(refs) >= cap:
                             break
                         hyps += greedy_decode(model, processor, db_batch,
                                               args.device)
@@ -515,7 +618,7 @@ def main():
                         refs += [clean_special_tokens(t) for t in
                                  processor.tokenizer.batch_decode(
                                      rl, group_tokens=False)]
-                    n = min(len(hyps), len(refs), args.eval_examples)
+                    n = min(len(hyps), len(refs), cap)
                     w = wer.compute(predictions=hyps[:n], references=refs[:n])
                     out.append(f"{name}={w:.5f}(n={n})")
                     if name == "dev-clean":
@@ -524,8 +627,10 @@ def main():
                       f"  e.g. {example!r}", flush=True)
     peak = (torch.cuda.max_memory_allocated() / 2**30
             if args.device == "cuda" else 0.0)
-    print(f"[done] steps={step} peak={peak:.2f}GiB dropped={dropped} "
-          f"wall={(time.time()-t0)/60:.1f}min", flush=True)
+    resv = (torch.cuda.max_memory_reserved() / 2**30
+            if args.device == "cuda" else 0.0)
+    print(f"[done] steps={step} alloc={peak:.2f}GiB reserved={resv:.2f}GiB "
+          f"dropped={dropped} wall={(time.time()-t0)/60:.1f}min", flush=True)
     if args.output_dir:
         os.makedirs(args.output_dir, exist_ok=True)
         torch.save({"model": model.state_dict(), "args": vars(args),
