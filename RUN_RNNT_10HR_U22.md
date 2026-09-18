@@ -63,29 +63,45 @@ observation rather than a guarantee.
 
 ## 2. Memory -- read this before choosing the GPU layout
 
-Measured peak on 100 h at `--encoder_stride 2`, worst batch taken from a
-full-epoch scan of batch shapes:
+Two numbers matter and they are far apart. `max_memory_allocated` is what
+the tensors need; what the GPU must actually have free is what the caching
+allocator RESERVES, which on an unconstrained card runs well above it.
+Measured on 100 h at `--encoder_stride 2`, worst batch from a full-epoch
+scan of batch shapes:
 
-| `--max_batch_audio_len` | peak | batch (mean utts) |
-|---|---|---|
-| 1600000 (100 s) | 5.80 GiB | 7 |
-| 3200000 (200 s) | 10.86 GiB | 14 |
-| 6400000 (400 s) | 20.68 GiB | 27 |
+| `--max_batch_audio_len` | allocated | reserved (unconstrained) | batch (mean utts) |
+|---|---|---|---|
+| 1600000 (100 s) | 5.80 GiB | -- | 7 |
+| 3200000 (200 s) | 10.86 GiB | ~14 GiB | 14 |
+| 6400000 (400 s) | 20.90 GiB | **27.10 GiB** | 27 |
 
 6400000 is the CTC runs' budget, so it keeps the optimizer's batch
 identical and is the default in the script.
 
-**On u22's 24 GB 4090s that leaves only about 2.3 GiB of headroom.** It
-will probably run, but it is not something to leave unattended for days --
-one fragmentation spike and the cell dies mid-run. Use this instead:
+**27.10 GiB does not fit on a 24 GB 4090** (23.99 GiB reported, ~23.4-23.7
+usable). The allocated figure alone would have said it fits with 2-3 GiB
+spare; that reading is wrong, and an earlier version of this runbook gave
+it. The gap is slack the allocator keeps because nothing forces it to give
+any back.
+
+Constraining it does make 6400000 fit. Rehearsed with a 23.0 GiB cap plus
+a GC threshold, reserved settled at **22.94 GiB**:
+
+```
+PYTORCH_CUDA_ALLOC_CONF=garbage_collection_threshold:0.7,max_split_size_mb:256
+--gpu_memory_fraction 0.96
+```
+
+That is 0.5-0.8 GiB of real headroom, which is thin for a run left
+unattended for days. Unless you specifically need the identical batch,
+prefer:
 
 ```
 --max_batch_audio_len 3200000 --grad_accum 2
 ```
 
-Same effective batch (400 s per optimizer step), 10.86 GiB peak, so one
-job per card with 12 GiB of headroom, or two jobs per card at 21.7 GiB if
-you are willing to sit at 1.3 GiB of headroom (I would not).
+Same effective batch (400 s per optimizer step) at 10.86 GiB allocated, so
+one job per card with room to spare and no allocator tuning needed.
 
 **One job per GPU.** Do not set `GPU_MEMORY_FRACTION`; `wav2vec2_rnnt.py`
 does not read it.
@@ -165,10 +181,11 @@ grep -h 'dev-clean=' $W/logs/*.log | tail -20      # eval so far
 grep -h peak $W/logs/*.log | sort -u | tail -5     # peak memory actually seen
 ```
 
-A healthy cell looks like this (`peak` must stay well under 23 GiB):
+A healthy cell looks like this. Watch `resv=`, not `alloc=` -- `resv=` is
+what has to fit in the card:
 
 ```
-[500/6000] loss=... B=13 T=376 U=255 peak=10.86GiB dropped=0 0.6s/step
+[500/6000] loss=... B=13 T=376 U=255 alloc=10.86 resv=14.02GiB dropped=0 0.6s/step
 [2000] dev-clean=0.2xxxx(n=200)  dev-other=0.4xxxx(n=200)  e.g. 'THE ...'
 ```
 

@@ -98,7 +98,10 @@ chmod +x $W/worker.sh
 Then start one worker per GPU you want to give it. **Do not start a
 worker on a GPU that is already running a 10 h cell** -- the worker
 claims a cell immediately, so a second cell would land on the same card
-and both would OOM (10.86 GiB each at this budget, 23 GiB available).
+and both would OOM. Note the figure to reason with is the allocator's
+RESERVED total, not `max_memory_allocated`: one cell at this budget is
+10.86 GiB allocated but reserves about 14 GiB, so two on one 24 GB card
+do not fit even though 2 x 10.86 would suggest they do.
 
 ```bash
 nohup nice -n 19 bash $W/worker.sh $W 2 > $W/worker2.log 2>&1 &   # pick free GPUs
@@ -116,16 +119,16 @@ W=$HOME/rnnt1hr
 ls $W/claim | wc -l                             # cells started (of 65)
 grep -ch done $W/worker*.log                    # cells finished
 grep -h 'dev-clean=' $W/logs/*.log | tail -20
-grep -h peak $W/logs/*.log | sort -u | tail -5   # must stay near 10.9 GiB
+grep -h resv= $W/logs/*.log | sort -u | tail -5   # resv= must stay near 14 GiB
 grep -h dropped $W/logs/*.log | grep -v 'dropped=0' | head   # should be empty
 ```
 
 A healthy cell:
 
 ```
-[500/3000] loss=... B=13 T=376 U=255 peak=10.86GiB dropped=0 0.6s/step
+[500/3000] loss=... B=13 T=376 U=255 alloc=10.86 resv=14.02GiB dropped=0 0.6s/step
 [1000] dev-clean=0.2xxxx(n=200)  dev-other=0.4xxxx(n=200)  e.g. 'THE ...'
-[done] steps=3000 peak=10.86GiB dropped=0 wall=30.0min
+[done] steps=3000 alloc=10.86 resv=14.02GiB dropped=0 wall=30.0min
 ```
 
 1 h is a small subset, so an epoch is only a handful of batches and the
