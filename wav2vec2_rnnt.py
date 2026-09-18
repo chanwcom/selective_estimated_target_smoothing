@@ -185,13 +185,27 @@ def parse_args():
                    help="Use the same length-budget batching the CTC script "
                         "uses, so the data pipeline is identical and the "
                         "loss is the only difference between the two setups.")
-    p.add_argument("--max_batch_audio_len", type=int, default=1600000,
-                   help="Length budget per batch, in audio samples. The CTC "
-                        "runs use 6400000 (400 s). A transducer needs less: "
-                        "its joint tensor is B x T x (U+1) x C, and the "
-                        "budget bounds B*T_max but not U_max, so the same "
-                        "budget costs roughly U_max times more memory here. "
-                        "1600000 (100 s) is the transducer-side equivalent.")
+    p.add_argument("--max_batch_audio_len", type=int, default=6400000,
+                   help="Length budget per batch, in audio samples. Defaults "
+                        "to the CTC runs' 6400000 (400 s) so the optimizer "
+                        "sees the same batch and the loss stays the only "
+                        "difference between the two setups.\n"
+                        "Measured peak memory on 100hr at --encoder_stride 2 "
+                        "(80 steps each, full-epoch batch-shape scan for the "
+                        "worst case):\n"
+                        "  1600000 ->  5.80 GiB   (B ~ 7)\n"
+                        "  3200000 -> 10.86 GiB   (B ~ 14)\n"
+                        "  6400000 -> 20.68 GiB   (B ~ 27)\n"
+                        "So 6400000 is one job per 32 GB card. On a 24 GB "
+                        "card it leaves only ~2.3 GiB of headroom, which is "
+                        "not enough to sit on for days; use 3200000 with "
+                        "--grad_accum 2 there instead -- same effective "
+                        "batch, 10.86 GiB. The transducer needs more than "
+                        "CTC at the same budget (CTC fits two jobs per card "
+                        "at gpu_memory_fraction 0.46 = 14.4 GiB) because the "
+                        "joint tensor is B x T x (U+1) x C and the budget "
+                        "bounds B*T_max but nothing bounds U_max; that is "
+                        "also why --max_label_len exists.")
     p.add_argument("--max_dynamic_batch_size", type=int, default=None)
     p.add_argument("--length_bucket_window_mult", type=int, default=50)
     p.add_argument("--dataloader_num_workers", type=int, default=0)
@@ -202,6 +216,19 @@ def parse_args():
                         "utterances of the 1 h subset, i.e. 7 batches per "
                         "epoch. The joint tensor grows linearly in T, so "
                         "this and --encoder_stride are the memory knobs.")
+    p.add_argument("--max_label_len", type=int, default=None,
+                   help="Drop samples whose transcript exceeds this many "
+                        "tokens. The audio filter alone does not bound the "
+                        "joint tensor: it is B x T x (U+1) x C, and the "
+                        "length budget bounds B*T_max but nothing bounds "
+                        "U_max. On LibriSpeech the two are tightly "
+                        "correlated (~15 chars/s, so a 30 s cap implies "
+                        "U <~ 450 and the measured max is 392), but that "
+                        "is a property of this corpus -- on a set whose "
+                        "transcripts run longer per second the same audio "
+                        "budget costs proportionally more memory. Setting "
+                        "this makes peak memory a guarantee rather than an "
+                        "observation.")
     p.add_argument("--encoder_stride", type=int, default=2)
     p.add_argument("--joint_dim", type=int, default=320)
     p.add_argument("--predictor_context", type=int, default=2)
@@ -218,7 +245,13 @@ def parse_args():
     p.add_argument("--output_dir", default=None)
     p.add_argument("--log_every", type=int, default=25)
     p.add_argument("--device", default="cuda")
-    p.add_argument("--grad_accum", type=int, default=1)
+    p.add_argument("--grad_accum", type=int, default=1,
+                   help="Micro-batches per optimizer step. Pair with a "
+                        "halved --max_batch_audio_len to keep the effective "
+                        "batch while fitting a 24 GB card. Note the loss is "
+                        "then averaged per micro-batch rather than per "
+                        "utterance, which differs slightly from a single "
+                        "large dynamic batch.")
     p.add_argument("--overfit_batches", type=int, default=0,
                    help="Sanity check: train on this many fixed batches "
                         "only and decode them back. A correct transducer "
@@ -350,6 +383,7 @@ def main():
     t0 = time.time()
     run_loss, run_n = 0.0, 0
     epoch = 0
+    dropped = 0
 
     def _batches():
         """Re-iterates the loader until max_steps.
@@ -390,6 +424,15 @@ def main():
     for batch in (_fixed_batches() if fixed else _batches()):
         if step >= max_steps:
             break
+        lab_all = batch["labels"]
+        if args.max_label_len:
+            keep = ((lab_all != -100).sum(-1) <= args.max_label_len)
+            n_drop = int((~keep).sum())
+            if n_drop:
+                dropped += n_drop
+                if not bool(keep.any()):
+                    continue
+                batch = {k: v[keep] for k, v in batch.items()}
         iv = batch["input_values"].to(args.device)
         am = batch["attention_mask"].to(args.device)
         lab = batch["labels"].clone()
@@ -425,9 +468,13 @@ def main():
             sched.step()
             step += 1
             if step % args.log_every == 0:
+                peak = (torch.cuda.max_memory_allocated() / 2**30
+                        if args.device == "cuda" else 0.0)
                 print(f"[{step}/{max_steps}] loss={run_loss/run_n:.3f} "
                       f"lr={sched.get_last_lr()[0]:.2e} "
-                      f"T={logits.shape[1]} U={logits.shape[2]-1} "
+                      f"B={logits.shape[0]} T={logits.shape[1]} "
+                      f"U={logits.shape[2]-1} peak={peak:.2f}GiB "
+                      f"dropped={dropped} "
                       f"{(time.time()-t0)/step:.2f}s/step", flush=True)
                 run_loss, run_n = 0.0, 0
             if fixed and (step % args.eval_steps == 0 or step == max_steps):
