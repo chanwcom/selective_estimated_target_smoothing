@@ -191,8 +191,13 @@ def parse_args():
     p.add_argument("--alpha_mode", default="fixed",
                    choices=["fixed", "active_support",
                             "floored_active_support",
-                            "frame_label_support", "asap"])
+                            "frame_label_support",
+                            "diagonal_active_support",
+                            "alignment_biased", "asap"])
     p.add_argument("--fas_eps", type=float, default=1e-10)
+    p.add_argument("--diag_align", default="departure",
+                   choices=["departure", "arrival"],
+                   help="diagonal_active_support only: whether a node reads the transitions leaving its own anti-diagonal (departure, the default and the one consistent with how this loss defines its target) or those arriving at it.")
     p.add_argument("--max_steps", type=int, default=None)
     p.add_argument("--warmup_steps", type=int, default=None)
     p.add_argument("--num_stable_steps", type=int, default=None)
@@ -553,9 +558,12 @@ def main():
         # The lattice recursions are run outside autocast: they accumulate
         # T + U logaddexp's and bf16 drifts too far (see
         # calculate_rnnt_alpha_beta).
+        # Positional through to `diag_align`, so asap_eps has to be given
+        # explicitly even though only alpha_mode="asap" reads it.
         loss = rnnt_shc_loss.RnntShcLoss.apply(
             lab, lab_lens, logits.float(), enc_lens, blank,
-            args.alpha, args.beta, args.alpha_mode, args.fas_eps)
+            args.alpha, args.beta, args.alpha_mode, args.fas_eps,
+            1e-3, args.diag_align)
         loss = loss.mean() / args.grad_accum
         scaler.scale(loss).backward()
         run_loss += float(loss.detach()) * args.grad_accum

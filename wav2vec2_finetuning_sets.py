@@ -940,7 +940,8 @@ def parse_args():
     parser.add_argument(
         "--alpha_mode", type=str, default="fixed",
         choices=["fixed", "entropy_matched", "entropy_matched_selective",
-                 "active_support", "floored_active_support", "asap"],
+                 "active_support", "floored_active_support",
+                 "alignment_biased", "asap"],
         help="How the smoothing weight is chosen. 'fixed' (default) "
              "uses --alpha as given. 'entropy_matched' ignores "
              "--alpha/--beta and instead solves, per example, for the "
