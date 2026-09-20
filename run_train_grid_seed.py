@@ -15,7 +15,7 @@ pass --force to ignore existing logs and rerun everything.
 Not hardcoded to any one fine-tuning set: --profile is forwarded as the
 4th positional arg to `script` (see run_train_dynamic_grid.sh), so the
 exact same grid tooling works for libri_light_1hr, libri_light_10hr,
-libri_speech_clean_100hr, or a future gigaspeech_xs profile once that
+libri_speech_clean_100hr_wsd, or a future gigaspeech_xs profile once that
 dataset is prepared -- just point --profile (and probably --log-dir, to
 keep results separate) at the new one, nothing else needs to change here.
 
@@ -78,7 +78,7 @@ def parse_args() -> argparse.Namespace:
         help="Fine-tuning set: forwarded as `script`'s 4th positional arg "
              "(any --finetune_profile choice in "
              "wav2vec2_finetuning_sets.py -- libri_light_1hr, "
-             "libri_light_10hr, libri_speech_clean_100hr, or a future "
+             "libri_light_10hr, libri_speech_clean_100hr_wsd, or a future "
              "gigaspeech_xs profile once prepared). Default: "
              "libri_light_1hr.")
     parser.add_argument(

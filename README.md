@@ -261,7 +261,7 @@ for the full list):
 | Flag | Meaning |
 |---|---|
 | `--alpha`, `--beta` | SHC smoothing coefficients |
-| `--finetune_profile` | Fine-tuning set: `libri_light_1hr`, `libri_light_10hr`, `libri_speech_clean_100hr`, `libri_speech_full_960hr` |
+| `--finetune_profile` | Fine-tuning set: `libri_light_1hr`, `libri_light_10hr`, `libri_speech_clean_100hr_wsd`, `libri_speech_full_960hr` |
 | `--dynamic_batching` + `--max_batch_audio_len` | Length-budget batching instead of fixed batch size |
 | `--max_sample_audio_len` | Drop any utterance longer than this many samples (safety cap) |
 | `--seed` | Weight init + data shuffle order (also tags `--run_name`) |

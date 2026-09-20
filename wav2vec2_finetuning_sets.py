@@ -255,30 +255,14 @@ _FINETUNE_PROFILES: Dict[str, Dict[str, Any]] = {
         num_decay_steps=1000,
         decay_type="linear",
     ),
-    "libri_speech_clean_100hr": dict(
-        train_subdir="librispeech/webdataset/train-clean-100",
-        warmup_steps=1000,
-        # 8000 stopped while the curve was still moving: over the last 4000
-        # steps the baseline mean fell 0.0728 -> 0.0659 across three seeds,
-        # and the final 500 still gained 0.0003. max_steps also sets the LR
-        # decay horizon, so this is a different schedule, not extra steps on
-        # the old one -- runs at different values are not comparable and the
-        # step count is in the run name to keep them apart. 10000 was still
-        # not the end of the curve, so the submission grid runs at 12000.
-        max_steps=12000,
-        # 1000, not 500: at 500 a cell spends 24 x 143 s = 57 min evaluating,
-        # 12.6% of its 7.5 h. Nothing decides anything on the intermediate
-        # points -- the comparison is the step-12000 checkpoint decoded with
-        # one decoder -- so they only need to be dense enough to see that a
-        # run is alive and descending, which 12 points are. Eval frequency
-        # touches no training tensor and load_best_model_at_end is False, so
-        # this changes no number a run produces.
-        #
-        # Cells logged at 500 and at 1000 therefore cannot be lined up by
-        # eval index; index * eval_steps is the step, and only equal steps
-        # compare.
-        eval_steps=1000,
-    ),
+    # The old 12000-step linear-decay 100 h profile lived here and was
+    # removed on 2026-09-20. Its name differed from the WSD profile below
+    # by one suffix, so passing "libri_speech_clean_100hr" silently
+    # produced a 12000-step run that looked fine and was comparable to
+    # nothing in the WSD grid -- which is exactly what happened. With the
+    # name gone, --finetune_profile is an argparse choice, so the same
+    # mistake now fails before training starts and lists what is valid.
+    # Nothing is run at 12000 any more; the 100 h grid is 15000-step WSD.
     # Full LibriSpeech (train-clean-100 + train-clean-360 + train-other-500,
     # ~960h combined). Unlike the profiles above, the shards for this one
     # aren't directly under `train_subdir` -- they're split across three

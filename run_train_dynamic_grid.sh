@@ -4,7 +4,7 @@
 # One cell of the alpha x beta grid sweep (see run_train_grid_seed.py). Dynamic
 # batching. `profile` is the 4th positional arg (any --finetune_profile
 # choice in wav2vec2_finetuning_sets.py, e.g. libri_light_1hr,
-# libri_light_10hr, libri_speech_clean_100hr, or a future gigaspeech_xs
+# libri_light_10hr, libri_speech_clean_100hr_wsd, or a future gigaspeech_xs
 # profile once that dataset is prepared) -- defaults to libri_light_1hr
 # if omitted, so existing 1hr sweeps/commands keep working unchanged.
 #

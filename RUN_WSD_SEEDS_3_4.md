@@ -37,9 +37,10 @@ grep 'CHECKPOINT_TOP_DIR' config.local.sh
 `config.local.sh` is gitignored, so each machine sets its own.
 
 Note the profile name: **`libri_speech_clean_100hr_wsd`**, not
-`libri_speech_clean_100hr`. The latter is the old 12000-step linear-decay
-profile and is left in place untouched. Passing the wrong one produces a
-run that looks fine and is not comparable to anything here.
+`libri_speech_clean_100hr`. The latter was the old 12000-step linear-decay
+profile; passing it produced a run that looked fine and was comparable to
+nothing here, so on 2026-09-20 it was removed outright. That name is now an
+invalid `--finetune_profile` choice and fails before training starts.
 
 ## One run per GPU on 24 GB
 

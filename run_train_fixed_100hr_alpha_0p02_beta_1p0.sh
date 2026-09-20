@@ -1,5 +1,5 @@
 ##PROFILE=libri_speech_full_960hr
-PROFILE=libri_speech_clean_100hr
+PROFILE=libri_speech_clean_100hr_wsd
 ##PROFILE=libri_light_10hr
 #PROFILE=libri_light_1hr
 #
