@@ -1,0 +1,203 @@
+{
+ "deleted_at": "2026-09-24T02:09:31Z",
+ "reason": "SlimDucer 의 오디오 타워로 쓴 wav2vec2 실험 전체. 수렴 실패(dev 0.98 고착)의 원인을 특정하지 못해 논문에 쓰지 않기로 결정. CTC/RNN-T 의 인코더로서의 wav2vec2 와는 무관하며 그 체크포인트들은 보존됨.",
+ "total_bytes": 7604615764,
+ "dirs": [
+  {
+   "path": "/mnt/synology_nas_00/chanwcom/models/u24/slimducer_100h_w2v2_100h_d05_100k",
+   "files": [
+    "ckpt.pt",
+    "log.jsonl"
+   ]
+  },
+  {
+   "path": "/mnt/synology_nas_00/chanwcom/models/u24/slimducer_100h_w2v2_100h_d05_50k",
+   "files": []
+  },
+  {
+   "path": "/mnt/synology_nas_00/chanwcom/models/u24/slimducer_10h_w2v2_6250_s1",
+   "files": [
+    "ckpt.pt",
+    "ckpt_step6250.pt",
+    "log.jsonl"
+   ]
+  },
+  {
+   "path": "/mnt/synology_nas_00/chanwcom/models/u24/slimducer_10h_w2v2_6250_s2",
+   "files": [
+    "ckpt.pt",
+    "ckpt_step6250.pt",
+    "log.jsonl"
+   ]
+  },
+  {
+   "path": "/mnt/synology_nas_00/chanwcom/models/u24/slimducer_10h_w2v2_960h_st4_6250",
+   "files": [
+    "ckpt.pt",
+    "ckpt_step6250.pt",
+    "log.jsonl"
+   ]
+  },
+  {
+   "path": "/mnt/synology_nas_00/chanwcom/models/u24/slimducer_10h_w2v2_combo_off3000_d03_20k",
+   "files": [
+    "ckpt.pt",
+    "ckpt_step20000.pt",
+    "log.jsonl"
+   ]
+  },
+  {
+   "path": "/mnt/synology_nas_00/chanwcom/models/u24/slimducer_10h_w2v2_drop0p5_25k",
+   "files": [
+    "ckpt.pt",
+    "ckpt_step25000.pt",
+    "log.jsonl"
+   ]
+  },
+  {
+   "path": "/mnt/synology_nas_00/chanwcom/models/u24/slimducer_10h_w2v2_st16_6250",
+   "files": [
+    "ckpt.pt",
+    "log.jsonl"
+   ]
+  },
+  {
+   "path": "/mnt/synology_nas_00/chanwcom/models/u24/slimducer_10h_w2v2_st4_25000",
+   "files": [
+    "ckpt.pt",
+    "ckpt_step25000.pt",
+    "log.jsonl"
+   ]
+  },
+  {
+   "path": "/mnt/synology_nas_00/chanwcom/models/u24/slimducer_10h_w2v2_st4_6250_R833",
+   "files": [
+    "log.jsonl"
+   ]
+  },
+  {
+   "path": "/mnt/synology_nas_00/chanwcom/models/u24/slimducer_10h_w2v2_st4_6250_nomask",
+   "files": [
+    "ckpt.pt",
+    "ckpt_step6250.pt",
+    "log.jsonl"
+   ]
+  },
+  {
+   "path": "/mnt/synology_nas_00/chanwcom/models/u24/slimducer_10h_w2v2_st4_drop0p1",
+   "files": [
+    "ckpt.pt",
+    "ckpt_step6250.pt",
+    "log.jsonl"
+   ]
+  },
+  {
+   "path": "/mnt/synology_nas_00/chanwcom/models/u24/slimducer_10h_w2v2_st4_drop0p3",
+   "files": [
+    "ckpt.pt",
+    "ckpt_step6250.pt",
+    "log.jsonl"
+   ]
+  },
+  {
+   "path": "/mnt/synology_nas_00/chanwcom/models/u24/slimducer_10h_w2v2_st4_drop0p5",
+   "files": [
+    "ckpt.pt",
+    "ckpt_step6250.pt",
+    "log.jsonl"
+   ]
+  },
+  {
+   "path": "/mnt/synology_nas_00/chanwcom/models/u24/slimducer_10h_w2v2_st8_25000",
+   "files": [
+    "log.jsonl"
+   ]
+  },
+  {
+   "path": "/mnt/synology_nas_00/chanwcom/models/u24/slimducer_10h_w2v2_st8_25k_wu6000",
+   "files": [
+    "ckpt.pt",
+    "log.jsonl"
+   ]
+  },
+  {
+   "path": "/mnt/synology_nas_00/chanwcom/models/u24/slimducer_10h_w2v2_st8_25k_wu6000_uni12000",
+   "files": [
+    "ckpt.pt",
+    "log.jsonl"
+   ]
+  },
+  {
+   "path": "/mnt/synology_nas_00/chanwcom/models/u24/slimducer_10h_w2v2_st8_6250",
+   "files": [
+    "ckpt.pt",
+    "ckpt_step6250.pt",
+    "log.jsonl"
+   ]
+  },
+  {
+   "path": "/mnt/synology_nas_00/chanwcom/models/u24/slimducer_10h_w2v2_st8_6250_R833",
+   "files": [
+    "log.jsonl"
+   ]
+  },
+  {
+   "path": "/mnt/synology_nas_00/chanwcom/models/u24/slimducer_10h_w2v2_st8_6250_wu2500",
+   "files": [
+    "log.jsonl"
+   ]
+  },
+  {
+   "path": "/mnt/synology_nas_00/chanwcom/models/u24/slimducer_10h_w2v2_stage1000",
+   "files": [
+    "ckpt.pt",
+    "log.jsonl"
+   ]
+  },
+  {
+   "path": "/mnt/synology_nas_00/chanwcom/models/u24/slimducer_10h_w2v2_stage3000",
+   "files": [
+    "ckpt.pt",
+    "ckpt_step12500.pt",
+    "log.jsonl"
+   ]
+  },
+  {
+   "path": "/mnt/synology_nas_00/chanwcom/models/u24/slimducer_10h_w2v2_stage6000",
+   "files": [
+    "ckpt.pt",
+    "log.jsonl"
+   ]
+  },
+  {
+   "path": "/mnt/synology_nas_00/chanwcom/models/u24/slimducer_10h_w2v2st1_12500_s1",
+   "files": [
+    "ckpt.pt",
+    "log.jsonl"
+   ]
+  },
+  {
+   "path": "/mnt/synology_nas_00/chanwcom/models/u24/slimducer_10h_w2v2st1_25000_s1",
+   "files": [
+    "ckpt.pt",
+    "log.jsonl"
+   ]
+  },
+  {
+   "path": "/mnt/synology_nas_00/chanwcom/models/u24/slimducer_10h_w2v2st1_6250_s1",
+   "files": [
+    "ckpt.pt",
+    "ckpt_step6250.pt",
+    "log.jsonl"
+   ]
+  },
+  {
+   "path": "/mnt/synology_nas_00/chanwcom/models/u24/slimducer_10h_w2v2st4_6250_s1",
+   "files": [
+    "ckpt.pt",
+    "ckpt_step6250.pt",
+    "log.jsonl"
+   ]
+  }
+ ]
+}

@@ -1,0 +1,8 @@
+{
+  "when": "2026-09-24 21:03 KST",
+  "why": "GPU3 에서 mk 와 메모리 경합으로 OOM 사망한 CTC 100hr AWS 런의 부분 체크포인트. global_step 3000/15000 이라 완주본과 섞이면 안 됨. 해당 셀은 큐에 재투입되어 처음부터 다시 돈다.",
+  "deleted": [
+    {"path": "/mnt/synology_nas_00/chanwcom/models/u24/libri_speech_clean_100hr_wsd_shc_15000steps_alpha_0p01_beta_0p0_unigram_32_dynbatch6400000_seed1_aws_eps1eneg10_hmatch", "bytes": 1133249106, "global_step": 3000, "max_steps": 15000},
+    {"path": "/mnt/synology_nas_00/chanwcom/models/u24/libri_speech_clean_100hr_wsd_shc_15000steps_alpha_0p02_beta_0p0_unigram_32_dynbatch6400000_seed1_aws_eps1eneg10_hmatch", "bytes": 1133249090, "global_step": 3000, "max_steps": 15000}
+  ]
+}
