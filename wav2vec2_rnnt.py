@@ -193,8 +193,35 @@ def parse_args():
                             "floored_active_support",
                             "frame_label_support",
                             "diagonal_active_support",
+                            "aws", "diagonal_occupancy", "mos",
+                            "diagonal_projected", "aws_alpha_beta",
                             "alignment_biased", "asap"])
     p.add_argument("--fas_eps", type=float, default=1e-10)
+    p.add_argument("--alpha_off_step", type=int, default=0,
+                   help="Turn the smoothing OFF after this many optimiser "
+                        "steps (0 keeps it on for the whole run). Measured "
+                        "on 10 h, FAS alpha=0.10 eps=1e-10 beats the "
+                        "baseline by 1.6 %% at step 2000 and then loses to "
+                        "it by 33.8 %% at step 6000, so the smoothing helps "
+                        "the early search and blocks the late sharpening. "
+                        "This exposes that split as a knob.")
+    p.add_argument("--gate", default="none",
+                   choices=["none", "low", "high", "blank_only", "label_only"],
+                   help="Restrict smoothing by the unsmoothed target's max: "
+                        "'low' exempts nodes already above --gate_thresh "
+                        "(breaks the self-referential flattening loop), "
+                        "'high' smooths only those (penalize overconfidence).")
+    p.add_argument("--gate_thresh", type=float, default=0.9)
+    p.add_argument("--sharpen", type=float, default=0.0,
+                   help="Target sharpening, the opposite of smoothing: at "
+                        "every node already putting more than "
+                        "--sharpen_thresh on one class, move the target "
+                        "that fraction of the way to a one-hot (1.0 snaps "
+                        "it). Takes the loss from marginalizing over "
+                        "alignments toward a hard Viterbi alignment. "
+                        "Applies to blank- and label-dominant nodes alike, "
+                        "and is independent of --alpha.")
+    p.add_argument("--sharpen_thresh", type=float, default=0.9)
     p.add_argument("--diag_align", default="departure",
                    choices=["departure", "arrival"],
                    help="diagonal_active_support only: whether a node reads the transitions leaving its own anti-diagonal (departure, the default and the one consistent with how this loss defines its target) or those arriving at it.")
@@ -560,10 +587,17 @@ def main():
         # calculate_rnnt_alpha_beta).
         # Positional through to `diag_align`, so asap_eps has to be given
         # explicitly even though only alpha_mode="asap" reads it.
+        # alpha is read per step, not once: --alpha_off_step drops it to 0
+        # partway through. `step` counts optimiser steps, so every
+        # micro-batch inside one accumulation window sees the same value.
+        cur_alpha = (0.0 if (args.alpha_off_step
+                             and step >= args.alpha_off_step)
+                     else args.alpha)
         loss = rnnt_shc_loss.RnntShcLoss.apply(
             lab, lab_lens, logits.float(), enc_lens, blank,
-            args.alpha, args.beta, args.alpha_mode, args.fas_eps,
-            1e-3, args.diag_align)
+            cur_alpha, args.beta, args.alpha_mode, args.fas_eps,
+            1e-3, args.diag_align, args.gate, args.gate_thresh,
+            args.sharpen, args.sharpen_thresh)
         loss = loss.mean() / args.grad_accum
         scaler.scale(loss).backward()
         run_loss += float(loss.detach()) * args.grad_accum

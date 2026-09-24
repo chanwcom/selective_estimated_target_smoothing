@@ -72,10 +72,14 @@ __author__ = "Chanwoo Kim(chanwcom@gmail.com)"
 
 # Standard imports
 import argparse
+import datetime
 import itertools
+import json
 import os
 import re
 import shutil
+import socket
+import sys
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Optional, Union
 
@@ -530,7 +534,7 @@ class MyCtcTrainer(Trainer):
                 smoothing_space="label", alpha_mode="fixed",
                 entropy_match_alpha_max=1.0, entropy_match_kappa=1.0,
                 alpha_switch_step=0, alpha_after_switch=0.0,
-                fas_eps=1e-10, asap_eps=1e-5,
+                fas_eps=1e-10, asap_eps=1e-5, blank_gate="none",
                 dynamic_batching=False, *args, **kwargs):
         super().__init__(*args, **kwargs)
         # To include the boundary token at the end.
@@ -549,6 +553,7 @@ class MyCtcTrainer(Trainer):
         self.entropy_match_kappa = entropy_match_kappa
         self.fas_eps = fas_eps
         self.asap_eps = asap_eps
+        self.blank_gate = blank_gate
         self.dynamic_batching = dynamic_batching
 
     def get_train_dataloader(self) -> DataLoader:
@@ -707,6 +712,13 @@ class MyCtcTrainer(Trainer):
                 self.entropy_match_kappa,
                 self.fas_eps,
                 self.asap_eps,
+                # peak_thresh / peak_gate are positional here only so that
+                # blank_gate lands in the right slot; they keep the loss's
+                # own defaults because fas_peak_gated is not wired into this
+                # script yet.
+                0.9,
+                "high",
+                self.blank_gate,
             ).mean()
 
         if return_outputs:
@@ -818,10 +830,23 @@ def _default_run_name(args: argparse.Namespace) -> str:
         # activity threshold is new, and two cells differing solely by it
         # would otherwise share one checkpoint directory.
         suffix += f"_fas_eps{_fmt_float(args.fas_eps)}"
+    elif args.alpha_mode in ("aws", "mos"):
+        # These two keep alpha meaningful (it is the per-element rate) and
+        # read fas_eps as a live knob, exactly like floored_active_support.
+        # Without their own tag they fell through to "_hmatch" below, where
+        # aws, mos and alignment_biased at the same alpha all shared one
+        # directory -- measured on 2026-09-21, when the CTC MOS run
+        # silently overwrote the CTC AWS checkpoint at alpha=0.05. The old
+        # "_hmatch" runs keep their names; only new runs get these.
+        suffix += f"_{args.alpha_mode}_eps{_fmt_float(args.fas_eps)}"
+    elif args.alpha_mode == "alignment_biased":
+        suffix += "_abs"
     elif args.alpha_mode == "asap":
         # Same reasoning as the FAS branch: alpha and beta are already in
         # the prefix, and the threshold is what else distinguishes a cell.
         suffix += f"_asap_eps{_fmt_float(args.asap_eps)}"
+    if args.blank_gate != "none":
+        suffix += f"_{args.blank_gate}"
     elif args.alpha_mode == "active_support":
         # alpha stays meaningful here (it is the per-class rate), so
         # unlike the solved-for modes the name keeps it and only adds a
@@ -922,10 +947,19 @@ def parse_args():
              "axis. See the module docstring of "
              "cwk/loss/pytorch/shc_loss_util.py.")
     parser.add_argument(
+        "--blank_gate", type=str, default="none",
+        choices=["none", "blank_only", "label_only"],
+        help="Restrict smoothing to the frames where the blank class holds "
+             "more than half the alignment posterior ('blank_only') or to "
+             "those where it does not ('label_only'). Unlike "
+             "alpha_mode='fas_peak_gated' this splits on WHICH class wins, "
+             "not by how much: 93.6%% of frames have a peak above 0.9 but "
+             "only 43.8%% are blank-dominant.")
+    parser.add_argument(
         "--alpha_mode", type=str, default="fixed",
         choices=["fixed", "entropy_matched", "entropy_matched_selective",
                  "active_support", "floored_active_support",
-                 "alignment_biased", "asap"],
+                 "aws", "mos", "alignment_biased", "asap"],
         help="How the smoothing weight is chosen. 'fixed' (default) "
              "uses --alpha as given. 'entropy_matched' ignores "
              "--alpha/--beta and instead solves, per example, for the "
@@ -1407,6 +1441,34 @@ def main():
             f"comparison uses.")
         print(f"[ckpt] saving at {_save_at} (save_strategy=no)")
 
+    # Name the metric by the split it comes from when there is more than
+    # one; dev-other is the split that separates methods, so it is the one
+    # worth selecting on if anyone ever turns load_best_model_at_end on.
+    if isinstance(eval_dataset, dict):
+        _best_metric = ("dev-other_wer" if "dev-other" in eval_dataset
+                        else f"{next(iter(eval_dataset))}_wer")
+    else:
+        _best_metric = "wer"
+
+    # Record the full invocation next to the checkpoints. HF's
+    # training_args.bin only carries TrainingArguments, so none of this
+    # script's own knobs -- alpha, beta, alpha_mode, fas_eps, blank_gate,
+    # smoothing_space -- survive in it, and the run-name suffix has been
+    # the only evidence of which method produced a checkpoint. That is not
+    # enough: on 2026-09-21 a MOS run overwrote the AWS checkpoint at
+    # alpha=0.05 because both modes fell through to the same "_hmatch"
+    # suffix, and nothing in either directory could have told them apart
+    # afterwards. wav2vec2_rnnt.py already stores vars(args) inside
+    # rnnt.pt; this is the CTC equivalent. Written before training starts
+    # so a run that dies still leaves its identity behind.
+    os.makedirs(output_dir, exist_ok=True)
+    with open(os.path.join(output_dir, "run_args.json"), "w") as _fh:
+        json.dump({"argv": sys.argv, "args": vars(args),
+                   "started_utc": datetime.datetime.now(
+                       datetime.timezone.utc).isoformat(timespec="seconds"),
+                   "host": socket.gethostname()},
+                  _fh, indent=2, sort_keys=True, default=str)
+
     training_args = TrainingArguments(
         output_dir=output_dir,
         seed=args.seed,
@@ -1433,7 +1495,11 @@ def main():
         ignore_data_skip=bool(args.resume_from_checkpoint),
         logging_steps=args.logging_steps,
         load_best_model_at_end=args.load_best_model_at_end,
-        metric_for_best_model="wer",
+        # With a dict of eval datasets Trainer prefixes metrics per key, so
+        # the bare "eval_wer" this used to name does not exist and Trainer
+        # raises KeyError at the FIRST evaluation -- load_best_model_at_end
+        # being False does not spare it, the check runs regardless.
+        metric_for_best_model=_best_metric,
         greater_is_better=False,
         push_to_hub=False,
         dataloader_num_workers=args.dataloader_num_workers,
@@ -1465,6 +1531,7 @@ def main():
         alpha_after_switch=args.alpha_after_switch,
         fas_eps=args.fas_eps,
         asap_eps=args.asap_eps,
+        blank_gate=args.blank_gate,
         dynamic_batching=args.dynamic_batching
     )
 
