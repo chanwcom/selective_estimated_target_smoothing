@@ -121,7 +121,7 @@ md = [f"""# 체크포인트가 어디 있나
 
     python /mnt/synology_nas_00/chanwcom/results/make_checkpoints_md.py
 
-마지막 생성: {now}   ·   결과 수치는 [RESULTS.md](RESULTS.md)
+마지막 생성: {now}   ·   결과 수치는 [RESULTS.md](RESULTS.md)   ·   측정 규약은 [EVAL_PROTOCOL.md](EVAL_PROTOCOL.md)
 
 ## 방법 이름 대응표 — 이것부터 보십시오
 

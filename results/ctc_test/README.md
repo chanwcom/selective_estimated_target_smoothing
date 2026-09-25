@@ -9,13 +9,24 @@ Read this one first.
 
 ## Why these are CPU numbers
 
-CPU and GPU decoding disagree by about 0.74 % on this pipeline, measured
-on 200 test-clean utterances with a SlimDucer checkpoint (GPU bf16 0.06066,
-CPU 0.06021). That is larger than some of the effects the tables exist to
-measure -- label smoothing at 100 h moves -1.23 % -- so a table must not
-mix devices. Neither device is more correct; it is a kernel difference
-worth one or two words out of 3,500. **CPU is the convention here so that
-lines from different machines are comparable.**
+An earlier version of this file said CPU and GPU decoding disagree by about
+0.74 %. **That claim was wrong and is retracted.** It came from a single
+200-utterance probe that compared GPU bf16 against CPU fp32, so it measured
+dtype, not device. Two RNN-T fp32 pairs decoded on both devices over the
+full dev sets agree to five decimal places.
+
+The convention here is still CPU, for two reasons that survive:
+
+  - **fp32 throughout.** bf16 does move the number; the probe above is real
+    evidence of that even though it was mislabelled. Every line in this
+    directory is fp32.
+  - **batch_size = 1.** At bs=1 the GPU's advantage is only 1.6x (0.370 vs
+    0.854 s/utterance), and bs=1 is itself 2.03x faster than bs=8 on CPU
+    because `padding="longest"` pads to the batch's longest utterance and
+    LibriSpeech spans 1-35 s. CPU lanes are plentiful here; GPUs are not.
+
+`EVAL_PROTOCOL.md` in the parent directory is the authoritative version of
+all of this, including why batch size changes WER at all.
 
 ## How a line is produced
 

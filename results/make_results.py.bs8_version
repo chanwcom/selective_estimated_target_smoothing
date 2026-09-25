@@ -44,33 +44,110 @@ def parse_run(nm):
     return (float(a.group(1).replace('p','.')),
             float(b.group(1).replace('p','.')), int(s.group(1)))
 
-# ---------------------------------------------- source: bs=1 test decode
-def load_bs1():
-    """results/bs1_test/results.jsonl -- batch_size=1 로 뽑은 줄만 받는다.
+# ------------------------------------------------------- source A: 100 h
+def load_ctc_100h():
+    """decode.jsonl keys on a tag; rebuild tag -> dir exactly as the
+    watcher did, then re-derive the method from the dir."""
+    tag2dir = {}
+    for host in os.listdir(MODELS):
+        hp = os.path.join(MODELS, host)
+        if not os.path.isdir(hp) or os.path.islink(hp): continue
+        for ck in glob.glob(f"{hp}/*100hr_wsd_shc_15000steps*/checkpoint-15000"):
+            nm = os.path.basename(os.path.dirname(ck))
+            p = parse_run(nm)
+            if not p: continue
+            alpha, beta, seed = p
+            watcher_m = "LS" if beta == 1.0 else "FAS"
+            astr = re.search(r'alpha_([0-9p]+)', nm).group(1).replace('p','.')
+            tag = f"{watcher_m}_a{astr}_seed{seed}_{host}"
+            # Two different runs can produce the same watcher tag: the tag
+            # carries only (beta-derived name, alpha, seed, host), so a FAS
+            # run and an AWS run at the same alpha/seed/host collide. The
+            # decode row cannot then be attributed, so drop both.
+            tag2dir.setdefault(tag, []).append((nm, alpha, beta, seed))
 
-    bs>1 은 패딩이 들어가고, facebook/wav2vec2-base 의 group-norm conv
-    특징 추출기가 시간축 전체를 정규화하므로 유효 프레임의 출력까지
-    바뀐다. 실측: CTC bs=8 은 bs=1 보다 +5.7%, RNN-T bs=32 는 +27.7%.
-    bs=1 은 패딩이 0 바이트라 배치 구성과 무관한 유일한 값이다.
-
-    이전 bs=8/32 결과는 results/DISCARDED_bs8/ 로 옮겨 두었다. 상대
-    비교(Δ)는 거기서도 유효하지만 절대값이 틀려서 이 표에는 넣지 않는다.
-    """
     rows, skipped = [], []
-    src = f"{OUT}/bs1_test/results.jsonl"
-    if not os.path.exists(src):
-        return rows, skipped
+    src = f"{REPO}/inference_logs_wsd/decode.jsonl"
     for line in open(src):
         r = json.loads(line)
-        if r.get("how", {}).get("batch_size") != 1:
-            skipped.append((r.get("tag",""), "", "batch_size != 1")); continue
-        if r.get("error") or "test-clean" not in r or "test-other" not in r:
-            skipped.append((r.get("tag",""), "", "split 누락/실패")); continue
+        if r["decoder"] != "pipeline":
+            skipped.append((r["tag"], r["split"], "beam_search")); continue
+        if r["split"] not in ("test-clean", "test-other"):
+            skipped.append((r["tag"], r["split"], "dev split")); continue
+        if r["tag"] not in tag2dir:
+            skipped.append((r["tag"], r["split"], "체크포인트 경로 못 찾음")); continue
+        cands = tag2dir[r["tag"]]
+        if len(cands) > 1:
+            skipped.append((r["tag"], r["split"],
+                            "태그 충돌 — 어느 체크포인트인지 특정 불가 ("
+                            + " / ".join(sorted(c[0] for c in cands)) + ")"))
+            continue
+        nm, alpha, beta, seed = cands[0]
+        m, note = method_of(nm, alpha, beta)
+        if m is None:
+            skipped.append((r["tag"], r["split"], note)); continue
+        rows.append(dict(task="CTC", hours="100h", method=m, alpha=alpha,
+                         seed=seed, split=r["split"], wer=r["wer"],
+                         run=nm, src="inference_logs_wsd/decode.jsonl"))
+    return rows, skipped
+
+# --------------------------------------------------------- source B: 1 h
+def load_ctc_1h():
+    rows, skipped = [], []
+    src = f"{OUT}/ctc_test/results.jsonl"
+    if not os.path.exists(src): return rows, skipped
+    for line in open(src):
+        r = json.loads(line)
+        if r["split"] not in ("test-clean", "test-other"):
+            skipped.append((r["tag"], r["split"], "dev split")); continue
+        nm = os.path.basename(os.path.dirname(r["ckpt"]))
+        p = parse_run(nm)
+        if not p:
+            skipped.append((r["tag"], r["split"], "런 이름 파싱 실패")); continue
+        alpha, beta, seed = p
+        hours = "1h" if "1hr" in nm else ("10h" if "10hr" in nm else "100h")
+        m, note = method_of(nm, alpha, beta)
+        if m is None:
+            skipped.append((r["tag"], r["split"], note)); continue
+        rows.append(dict(task="CTC", hours=hours, method=m, alpha=alpha,
+                         seed=seed, split=r["split"], wer=r["wer"],
+                         run=nm, src="results/ctc_test/results.jsonl"))
+    return rows, skipped
+
+# ----------------------------------------------- source C: RNN-T test
+def load_rnnt():
+    """rnnt_test/results.jsonl -- rnnt/eval_ckpt.py 가 쓴 줄.
+
+    RNN-T 는 방법을 이름이 아니라 rnnt.pt 안의 args 에서 읽는다. 그래서
+    여기서도 alpha_mode/beta/fas_eps 를 그대로 신뢰한다. AWS 는 fas_eps 가
+    1e-10 인 것만 받는다 (1e-2, 0.1 로 돌린 런이 실제로 섞여 있다).
+    """
+    rows, skipped = [], []
+    src = f"{OUT}/rnnt_test/results.jsonl"
+    if not os.path.exists(src): return rows, skipped
+    for line in open(src):
+        r = json.loads(line)
+        if r.get("error") or r.get("rc") not in (0, None):
+            skipped.append((r.get("tag",""), "", "eval 실패")); continue
+        if "test-clean" not in r or "test-other" not in r:
+            skipped.append((r.get("tag",""), "", "split 누락")); continue
+        mode, beta, eps = r.get("method"), r.get("beta"), r.get("fas_eps")
+        alpha = r.get("alpha") or 0.0
+        if alpha == 0.0:
+            m = "baseline"
+        elif mode == "aws":
+            if eps != 1e-10:
+                skipped.append((r["tag"], "", f"AWS fas_eps={eps} (1e-10 아님)")); continue
+            m = "AWS"
+        elif mode == "floored_active_support":
+            m = "LS" if beta == 1.0 else "FAS"
+        else:
+            skipped.append((r["tag"], "", f"논문 외 모드 {mode}")); continue
         for sp in ("test-clean", "test-other"):
-            rows.append(dict(task=r["task"], hours=r["hours"], method=r["method"],
-                             alpha=r["alpha"], seed=r["seed"], split=sp, wer=r[sp],
-                             run=r["tag"], ckpt=r.get("ckpt",""),
-                             src="results/bs1_test/results.jsonl"))
+            rows.append(dict(task="RNN-T", hours=r["hours"], method=m, alpha=alpha,
+                             seed=r.get("seed"), split=sp, wer=r[sp],
+                             run=r["tag"], ckpt=r.get("ckpt", ""),
+                             src="results/rnnt_test/results.jsonl"))
     return rows, skipped
 
 
@@ -125,7 +202,7 @@ def table(cells, task, hours):
     return "\n".join(L)
 
 rows, skipped = [], []
-for f in (load_bs1,):
+for f in (load_ctc_100h, load_ctc_1h, load_rnnt):
     r, s = f(); rows += r; skipped += s
 cells, partial, meta = cellify(rows)
 
@@ -140,15 +217,12 @@ md = [f"""# 검증된 test 결과 — 단일 출처
 
 마지막 생성: {now}
 
-**측정 규약은 [EVAL_PROTOCOL.md](EVAL_PROTOCOL.md) 에 있습니다.** 어떤 숫자가
-이 표에 들어올 수 있는지, 왜 그런지, 실측 근거가 무엇인지 전부 거기 있습니다.
-
 체크포인트가 어디 있는지, 디렉터리 이름이 어느 방법을 뜻하는지는
 **[CHECKPOINTS.md](CHECKPOINTS.md)** 를 보십시오. 특히 **전통 LS 는
 `fas` 라는 이름의 디렉터리에 들어 있습니다** (FAS + beta=1.0 이 textbook
 LS 와 bit-exact). 거기서 헷갈리면 이 표를 잘못 읽게 됩니다.
 
-## 이 표는 batch_size=1 로 뽑습니다 (2026-09-25 이후)
+## ⚠ 경고 -- 이 표의 절대 WER 은 배치 크기만큼 부풀려져 있습니다
 
 `facebook/wav2vec2-base` 는 `feat_extract_norm="group"` 이라 conv 특징
 추출기의 GroupNorm 이 **시간축 전체**를 정규화합니다. 0 패딩이 그 통계에
@@ -165,9 +239,8 @@ LS 와 bit-exact). 거기서 헷갈리면 이 표를 잘못 읽게 됩니다.
     CTC    bs=1                     0.04922
     CTC    bs=8  (현재 기본값)       0.05202   +5.7%
 
-그래서 이 표는 **`--batch_size 1` 로 뽑은 줄만** 받습니다. 이전
-bs=8/32 결과는 `results/DISCARDED_bs8/` 로 옮겼습니다 -- 상대
-비교는 유효하지만 절대값이 틀립니다.
+CTC 표는 `wav2vec2_inference.py` 기본 `--batch_size 8` 로 뽑혔으므로
+**절대값이 약 +5.7% 높습니다.** `bs=32` 로 뽑은 RNN-T 값은 폐기했습니다.
 
 **방법 간 비교는 무너지지 않습니다.** 모든 셀이 같은 배치 설정으로
 평가됐고, 평가 데이터셋에 셔플이 없어 배치 구성이 재현됩니다 -- 같은 셀을
@@ -219,57 +292,6 @@ for task in ("CTC", "RNN-T"):
         md.append(f"\n## {task} — {hours}\n")
         t = table(cells, task, hours)
         md.append(t if t else "_아직 없음._\n")
-
-# ---------------------------------------------------------------------------
-# SlimDucer.  CTC/RNN-T 와 달리 alpha/seed 격자가 아니라 런마다 설정이 달라서
-# 별도 파일(slimducer_test/results.jsonl)에 한 줄씩 쌓는다.  평가 집합이 다른
-# 것도 여기서 분리하는 이유다: SlimDucer 인코더는 max_mel=3000 으로 30 초가
-# 구조적 상한이라 n=2611/2932 이고, CTC/RNN-T 는 필터 없이 2620/2939 다.
-# 두 숫자를 같은 표에 섞으면 안 된다.
-SD_SRC = f"{OUT}/slimducer_test/results.jsonl"
-sd_rows, sd_bad = [], []
-if os.path.exists(SD_SRC):
-    for line in open(SD_SRC, encoding="utf-8"):
-        line = line.strip()
-        if not line:
-            continue
-        r = json.loads(line)
-        c, o = r.get("test-clean_wer"), r.get("test-other_wer")
-        n = r.get("n") or {}
-        if c is None or o is None:
-            sd_bad.append((r.get("tag", "?"), "split 누락"))
-            continue
-        # 30 초 상한이 걸린 집합인지 확인한다.  다른 n 이 섞여 들어오면
-        # 그건 다른 자로 잰 것이므로 표에 넣지 않는다.
-        if (n.get("test-clean"), n.get("test-other")) != (2611, 2932):
-            sd_bad.append((r.get("tag", "?"), f"n={n} (2611/2932 아님)"))
-            continue
-        sd_rows.append(dict(tag=r["tag"], clean=c, other=o,
-                            geo=r.get("geo", math.sqrt(c * o)),
-                            step=r.get("step"), device=r.get("device", ""),
-                            machine=r.get("machine", "")))
-
-if sd_rows:
-    md.append("\n## SlimDucer\n")
-    md.append("평가 집합이 CTC/RNN-T 와 다릅니다: **n = 2611/2932**. 인코더 버퍼가")
-    md.append("`max_mel = 3000`(30 초)으로 고정이라 30 초 초과 발화를 받을 수 없습니다")
-    md.append("(`slimducer.py:230/241/274`). CTC/RNN-T 는 필터가 없어 2620/2939 입니다.")
-    md.append("**두 표의 숫자를 같은 줄에 놓지 마십시오.**\n")
-    md.append("이 표는 논문의 dev/훈련-루프 표를 대체하는 값입니다. 사용처는")
-    md.append("`slimducer_run_reference.md` 를 보십시오.\n")
-    md.append("| 런 | step | test-clean | test-other | 기하평균 | other/clean | 장치 |")
-    md.append("|---|---:|---:|---:|---:|---:|---|")
-    for r in sorted(sd_rows, key=lambda x: (x["geo"])):
-        md.append(f"| `{r['tag']}` | {r['step'] or '—'} | {r['clean']:.4f} | "
-                  f"{r['other']:.4f} | **{r['geo']:.5f}** | "
-                  f"{r['other'] / r['clean']:.2f} | {r['device']} |")
-    md.append("")
-
-if sd_bad:
-    md.append("\n### SlimDucer — 표에 넣지 않은 줄\n")
-    for tag, why in sd_bad:
-        md.append(f"- `{tag}` — {why}")
-    md.append("")
 
 if partial:
     md.append("\n## 한쪽 split 만 있는 칸 (미완)\n")
