@@ -47,7 +47,7 @@ SCHED="--max_steps 15000 --warmup_steps 1000 --num_stable_steps 11000 --num_deca
 BATCH="--dynamic_batching --max_batch_audio_len 1600000 --max_sample_audio_len 480000"
 COMMON="--model_name facebook/wav2vec2-large-lv60 --fas_eps 1e-10 --vocab_size 32 \
  --seed $SEED --finetune_profile libri_speech_clean_100hr_wsd $SCHED \
- --learning_rate 1e-4 $BATCH --dataloader_num_workers 4 --gpu_memory_fraction 0.46"
+ --learning_rate 5e-5 $BATCH --dataloader_num_workers 4 --gpu_memory_fraction 0.46"
 
 echo "=== $NAME on GPU $GPU ===" | tee "$LOG"
 

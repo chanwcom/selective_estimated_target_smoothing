@@ -8,6 +8,7 @@
 | 항목 | 이전 | 지금 |
 |---|---|---|
 | 배치 | `--gpu_profile 4090` 기본값 | **동적 배칭 `--max_batch_audio_len 1600000`** |
+| learning rate | 1e-4 | **5e-5** |
 | eval 배치 | 언급 없음 | **훈련과 따로 4** |
 | GPU 상한 | 2장 | **3장** |
 | 실행 예 | `--output_dir` (CTC 에 없는 인자) | 아래 §실행 예 |
@@ -91,7 +92,7 @@ alpha=0.16 부터 계수가 음수가 되어 합이 1 을 넘는다 (실측 1.75
 | 파인튜닝 셋 | LibriSpeech train-clean-100 (100h) |
 | 총 스텝 | 15,000 |
 | 스케줄 | WSD warmup 1,000 / stable 11,000 / decay 3,000 |
-| optimizer | AdamW, lr **1e-4** (CTC · RNN-T 동일) |
+| optimizer | AdamW, lr **5e-5** (CTC · RNN-T 동일) — 아래 참조 |
 | `--fas_eps` | **1e-10** (기본값이지만 명시할 것) |
 
 **`wav2vec2-large-960h-lv60-self` 를 쓰면 안 된다** — 이미 960h 로 ASR
@@ -102,6 +103,34 @@ alpha=0.16 부터 계수가 음수가 되어 합이 1 을 넘는다 (실측 1.75
 덮어쓸 것.** 명시 인자가 프로파일을 이기고, 세 값이 `max_steps` 와 안 맞으면
 assert 로 죽으므로 조용히 틀릴 일은 없다. 프로파일 자체는 계속 쓴다 —
 `train_subdir` 을 거기서 받는다.
+
+### learning rate — **5e-5. 1e-4 가 아니다**
+
+배치가 기존 대비 1/4 이 되었으므로 그에 맞춰 낮춘다.
+
+| | 기존 AWS (base) | 이번 PAS (large) |
+|---|---|---|
+| `max_batch_audio_len` | 6,400,000 | **1,600,000** |
+| 실제 배치 B (중앙값) | **27** 발화 | **6.7** 발화 |
+| `grad_accum` | 2 | 2 |
+| 유효 배치 | ~54 발화 | **~13 발화** |
+| learning rate | 1e-4 | **5e-5** |
+
+RNN-T 는 `max_dynamic_batch_size` 가 `None` 이라 개수 상한이 걸리지 않는다.
+오디오 예산만 binding 이므로 예산 1/4 이 배치 1/4 로 그대로 간다.
+
+**왜 정확히 절반인가**: AdamW 계열의 sqrt 스케일링(`lr ∝ √batch`)으로
+`1/√4 = 1/2`. 그리고 5e-5 는 wav2vec2-large 파인튜닝의 표준 범위라, 배치
+문제를 빼고 보더라도 large 에 1e-4 를 쓰는 것보다 안전한 쪽이다.
+
+⚠ **15,000 스텝이 보는 데이터도 1/4 이 된다** — 기존 약 28 에폭에서
+**약 7 에폭**으로 줄어든다. 기울기 누적을 8 로 올리면 메모리 증가 없이
+기존 유효 배치와 데이터량을 그대로 복원할 수 있지만 스텝당 4배가 걸려
+런당 24~33 시간이 된다. 런이 100개 가까우므로 택하지 않았다.
+
+**그래서 baseline 을 가장 먼저 돌린다.** baseline WER 이 100h large 의
+통상 범위에서 크게 벗어나면 7 에폭이 모자란다는 신호이고, 그때는 스윕
+전체를 시작하기 전에 이 결정을 다시 본다.
 
 ### 배치 — **반드시 동적 배칭. 값은 실측 고정이다**
 
@@ -261,7 +290,7 @@ python wav2vec2_finetuning_pas.py \
     --vocab_size 32 --seed 3 \
     --finetune_profile libri_speech_clean_100hr_wsd \
     --max_steps 15000 --warmup_steps 1000 --num_stable_steps 11000 --num_decay_steps 3000 \
-    --learning_rate 1e-4 \
+    --learning_rate 5e-5 \
     --dynamic_batching --max_batch_audio_len 1600000 --max_sample_audio_len 480000 \
     --per_device_eval_batch_size 4 --dataloader_num_workers 4 \
     --checkpoint_top_dir /mnt/synology_nas_00/chanwcom/models --run_name $NAME \
@@ -277,7 +306,7 @@ python wav2vec2_rnnt.py \
     --alpha_mode pas_h --alpha 0.01 --fas_eps 1e-10 --vocab_size 32 --seed 3 \
     --finetune_profile libri_speech_clean_100hr_wsd \
     --max_steps 15000 --warmup_steps 1000 --num_stable_steps 11000 --num_decay_steps 3000 \
-    --learning_rate 1e-4 \
+    --learning_rate 5e-5 \
     --dynamic_batching --max_batch_audio_len 1600000 --max_sample_audio_len 480000 \
     --max_label_len 450 --eval_batch_size 4 --dataloader_num_workers 4 --grad_accum 2 \
     --output_dir /mnt/synology_nas_00/chanwcom/models/$NAME \
