@@ -193,10 +193,17 @@ def parse_args():
                             "floored_active_support",
                             "frame_label_support",
                             "diagonal_active_support",
-                            "aws", "diagonal_occupancy", "mos",
+                            "aws", "diagonal_occupancy",
+                            "pas_h", "pas_u", "mos",
                             "diagonal_projected", "aws_alpha_beta",
                             "alignment_biased", "asap"])
     p.add_argument("--fas_eps", type=float, default=1e-10)
+    p.add_argument("--model_name", type=str,
+                   default="facebook/wav2vec2-base",
+                   help="Encoder checkpoint. The PAS sweep uses "
+                        "'facebook/wav2vec2-large-lv60' (SSL only). Do NOT "
+                        "use 'wav2vec2-large-960h-lv60-self', which is "
+                        "already fine-tuned on 960h.")
     p.add_argument("--alpha_off_step", type=int, default=0,
                    help="Turn the smoothing OFF after this many optimiser "
                         "steps (0 keeps it on for the whole run). Measured "
@@ -298,6 +305,15 @@ def parse_args():
                         "(~0.004 WER) is larger than the differences between "
                         "methods (0.001-0.003) -- it is a curve to watch, "
                         "not a number to compare.")
+    p.add_argument("--eval_batch_size", type=int, default=32,
+                   help="Utterances per forward pass in the periodic eval. "
+                        "Was hardcoded to 32, which is the memory peak of a "
+                        "run: with a large encoder 32 x 30 s asks for 4 GiB "
+                        "in one allocation and OOMs a card whose training "
+                        "step fits in 14 GiB. Unlike --max_batch_audio_len "
+                        "this never touches the training path, so cells "
+                        "measured at different values stay comparable. 32 is "
+                        "the default so existing recipes are unchanged.")
     p.add_argument("--final_eval_examples", type=int, default=0,
                    help="Utterances per split for the eval at --max_steps. "
                         "0 means the whole split, which is what makes that "
@@ -334,8 +350,8 @@ def parse_args():
     return p.parse_args()
 
 
-def build_processor(vocab_size):
-    processor = AutoProcessor.from_pretrained("facebook/wav2vec2-base")
+def build_processor(vocab_size, model_name="facebook/wav2vec2-base"):
+    processor = AutoProcessor.from_pretrained(model_name)
     spm = os.path.join(repo_config.RESOURCE_TOP_DIR,
                        f"librispeech_unigram_{vocab_size}.model")
     processor.tokenizer = Wav2Vec2SPMTokenizer(spm)
@@ -437,7 +453,7 @@ def main():
               f"({args.gpu_memory_fraction * torch.cuda.get_device_properties(0).total_memory / 2**30:.1f} GiB)",
               flush=True)
 
-    processor, spm = build_processor(args.vocab_size)
+    processor, spm = build_processor(args.vocab_size, args.model_name)
     vocab = len(processor.tokenizer)
     blank = processor.tokenizer.pad_token_id
     collator = DataCollatorCTCWithPadding(processor=processor,
@@ -473,7 +489,8 @@ def main():
             max_sample_length=args.max_sample_audio_len)
         for name in ("dev-clean", "dev-other")}
 
-    model = RnntModel(vocab, joint_dim=args.joint_dim,
+    model = RnntModel(vocab, encoder_name=args.model_name,
+                      joint_dim=args.joint_dim,
                       predictor_context=args.predictor_context,
                       encoder_stride=args.encoder_stride,
                       blank=blank, predictor=args.predictor).to(args.device)
@@ -649,7 +666,7 @@ def main():
                     cap = (args.final_eval_examples if step == max_steps
                            else args.eval_examples)
                     cap = cap or 10 ** 9
-                    for db_batch in DataLoader(ds, batch_size=32,
+                    for db_batch in DataLoader(ds, batch_size=args.eval_batch_size,
                                                collate_fn=collator):
                         if len(refs) >= cap:
                             break

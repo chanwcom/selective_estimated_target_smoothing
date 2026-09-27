@@ -1,0 +1,1565 @@
+# pylint: disable=import-error, no-member
+"""Training script for the SHC-loss wav2vec2 CTC model.
+
+===============================================================================
+CLEANUP NOTES (what changed vs. the previous version, and why)
+===============================================================================
+
+1) `out_name` no longer hardcodes hyperparameter values into the run name.
+   -----------------------------------------------------------------------
+   The old code did:
+       out_name = f"model_2000_steps_alpha_0p02_beta_0p0_unigram_{args.vocab_size}_00"
+   This string is *always* "alpha_0p02_beta_0p0" and "2000_steps" no matter
+   what `--alpha`/`--beta`/`--max_steps` you actually pass -- so two runs
+   with different alpha/beta would silently get the same directory name
+   (and one would overwrite the other's checkpoints). Two things fixed
+   this:
+     - `--run_name` is now a first-class CLI argument. If you pass it,
+       that's the directory name, full stop -- no magic string-building.
+     - If you don't pass `--run_name`, a name is still auto-generated for
+       convenience, but from the *actual* `args.alpha` / `args.beta` /
+       `args.max_steps` values (see `_default_run_name()`), so it's at
+       least accurate. The generated name is also printed at startup so
+       you always know what directory you're about to write to.
+
+2) The `if 0: ... if 1: ...` GPU-profile switching pattern is replaced by
+   `--gpu_profile {4090,a100}` plus per-flag overrides.
+   -----------------------------------------------------------------------
+   The old code had two full `TrainingArguments(...)` blocks (plus a third,
+   fully commented-out legacy one) and you'd edit the source to flip which
+   one was "if 1" vs "if 0" to switch machines. That's easy to get wrong
+   (e.g. forgetting which one is active) and isn't scriptable. Now:
+     - `_GPU_PROFILES` holds the two presets (their values are exactly the
+       same numbers as the old "if 1" (4090) and "if 0" (A100) blocks).
+     - `--gpu_profile` picks the base preset (default: "4090", matching
+       the branch that was actually active before).
+     - Any of the individual hyperparameter flags
+       (`--per_device_train_batch_size`, `--learning_rate`, etc.) can be
+       passed explicitly to override just that one value on top of the
+       chosen profile -- no source editing needed.
+   The old fully-commented-out legacy block (500 steps / 96 batch / 250
+   warmup) was dropped; it wasn't reachable and was just clutter.
+
+3) `processor` is no longer a mutated module-level global.
+   -----------------------------------------------------------------------
+   The old code declared `processor` at module scope and reassigned
+   `processor.tokenizer` inside `main()` via `global processor`, and
+   `compute_metrics()` read that same module-level `processor` implicitly.
+   That's a bit fragile (any other code importing this module sees a
+   half-initialized `processor` before `main()` runs, and it's not obvious
+   from `compute_metrics`'s signature that it depends on outside state).
+   `compute_metrics` is now built by `make_compute_metrics(processor)`, a
+   factory that returns a closure capturing `processor` explicitly -- still
+   satisfying the HF `Trainer` requirement that `compute_metrics` take a
+   single `pred` argument, but without relying on a mutable global.
+
+4) Removed dead code.
+   -----------------------------------------------------------------------
+   - `current_vocab_size` was assigned in both branches of the
+     `vocab_size` if/else but never read afterwards. Removed.
+   - The various commented-out `#torch.backends...` / `#os.environ...`
+     lines and the big commented-out legacy `TrainingArguments` block were
+     dropped. (If you need `CUDA_LAUNCH_BLOCKING=1` or TF32-disable for
+     debugging, `--debug_sync` / `--disable_tf32` flags are provided
+     instead of source comments to toggle.)
+===============================================================================
+"""
+
+from __future__ import (absolute_import, division, print_function,
+                        unicode_literals)
+
+__author__ = "Chanwoo Kim(chanwcom@gmail.com)"
+
+# Standard imports
+import argparse
+import datetime
+import itertools
+import json
+import os
+import re
+import shutil
+import socket
+import sys
+from dataclasses import dataclass
+from typing import Any, Callable, Dict, List, Optional, Union
+
+# Third-party imports
+import evaluate
+import numpy as np
+import torch
+from torch.utils.data import DataLoader
+from transformers import (AutoModelForCTC, AutoProcessor,
+                          PreTrainedTokenizer, Trainer, TrainerCallback,
+                          TrainingArguments)
+
+# Custom imports
+import repo_config
+from common import sample_util
+from cwk.loss.pytorch import shc_loss, shc_loss_util
+
+# Default directory settings. These are now just the *defaults* for the
+# corresponding CLI flags (see parse_args()) rather than fixed module-level
+# globals, so every path here can be overridden per-invocation without
+# editing the source:
+#   --db_top_dir           (was: db_top_dir)
+#   --train_top_dir        (was: train_top_dir, derived from db_top_dir)
+#   --test_top_dir         (was: test_top_dir, derived from db_top_dir)
+#   --checkpoint_top_dir   (was: model_top_dir -- renamed, see note below)
+#   --resource_top_dir     (was: spm_top_dir -- renamed, see note below)
+#
+# Renames:
+#   - `model_top_dir` -> `checkpoint_top_dir`: this directory only ever
+#     holds `--run_name` subdirectories full of *training checkpoints*
+#     (it's passed straight into `TrainingArguments.output_dir`), not
+#     model definitions/configs, so "checkpoint" describes its contents
+#     more accurately than "model".
+#   - `spm_top_dir` -> `resource_top_dir`: the actual path
+#     ("<repo_root>/resources/spm") was already a general resource
+#     directory, not SPM-specific, and the SPM model filename is still
+#     built the same way (`librispeech_unigram_{vocab_size}.model`)
+#     underneath it. Renaming acknowledges that other shared resources
+#     (LMs, lexicons, etc.) could reasonably live in the same directory
+#     later.
+_DEFAULT_DB_TOP_DIR = repo_config.DB_TOP_DIR
+_DEFAULT_CHECKPOINT_TOP_DIR = repo_config.CHECKPOINT_TOP_DIR
+_DEFAULT_RESOURCE_TOP_DIR = repo_config.RESOURCE_TOP_DIR
+
+# GPU hyperparameter presets: hardware/batch-shaped settings only (how big a
+# batch and how fast to step), independent of how much data or how long the
+# run trains for -- see _FINETUNE_PROFILES below for that axis.
+# "4090" is what used to be under `if 1:`, "a100" is what used to be under
+# `if 0:`. `--gpu_profile` picks one of these as a starting point; any
+# individually-passed CLI flag overrides just that key.
+_GPU_PROFILES: Dict[str, Dict[str, Any]] = {
+    "4090": dict(
+        per_device_train_batch_size=24,
+        # 12, not 24, because eval is the memory peak of a run, not
+        # training. Training batches are length-budgeted at
+        # --max_batch_audio_len (400 s of audio); eval is plain fixed-count
+        # batching with no length budget at all, so 24 x the 29.6 s cap
+        # allocates 710 s worth -- 1.78x the training peak. Measured on
+        # both test-clean and test-other; 12 puts the worst batch at 355 s,
+        # just under training.
+        #
+        # That matters because two runs now share a GPU, and lanes started
+        # together evaluate together (eval_steps is the same for both), so
+        # the two eval peaks coincide. One such collision OOM'd an ASAP
+        # 10hr cell at step 3500 of 4000 -- 2 h 05 m lost, with no
+        # checkpoint to resume from since save_steps == max_steps.
+        #
+        # Eval batch size does not affect WER: it only changes how many
+        # utterances are batched per forward pass, and never touches the
+        # training path. Cells measured at 24 and at 12 stay comparable,
+        # unlike a change to --max_batch_audio_len or
+        # --dataloader_num_workers.
+        per_device_eval_batch_size=12,
+        learning_rate=1e-4,
+        gradient_accumulation_steps=2,
+        load_best_model_at_end=False,
+    ),
+    "a100": dict(
+        per_device_train_batch_size=96,
+        per_device_eval_batch_size=96,
+        learning_rate=4e-4,
+        gradient_accumulation_steps=2,
+        load_best_model_at_end=False,
+    ),
+}
+
+# Fine-tuning dataset/schedule presets: how much labeled data to fine-tune
+# on, and the step schedule appropriate for that amount.
+#   - `train_subdir`: default training data directory, relative to
+#     --db_top_dir (used only when --train_top_dir isn't passed explicitly).
+#   - `warmup_steps` / `max_steps` / `eval_steps`: schedule sized for that
+#     dataset. `save_steps` is auto-synced to `max_steps` below.
+# `--finetune_profile` picks one of these; any individually-passed CLI flag
+# (--warmup_steps/--max_steps/--eval_steps/--save_steps/--train_top_dir)
+# overrides just that value.
+# Below this much VRAM, --gpu_memory_fraction is ignored (see main()).
+#
+# That flag exists for putting two runs on one card, which only the 32 GB
+# class can do: a 1hr run peaks around 21 GiB, so two of them need ~42 GiB
+# and a 24 GB card fits exactly one. Applying a fraction meant for sharing
+# to a card that cannot share does nothing but OOM the single run it has --
+# measured on a 4090, where the shipped 0.46 capped the process at 10.8 GiB
+# and it died in the first backward asking for 2.44 GiB with 14.5 GiB still
+# free on the card.
+#
+# 30.0 rather than 32.0 because a nominally "32 GB" card reports less than
+# that once the driver's reservation is out: the 5090s here come back as
+# 31.4 GiB. The cutoff has to sit below the nominal figure or it would
+# bypass on exactly the cards the flag is for.
+_MEMORY_FRACTION_MIN_GIB = 30.0
+
+_FINETUNE_PROFILES: Dict[str, Dict[str, Any]] = {
+    "libri_light_1hr": dict(
+        train_subdir="libri_light_finetuning/webdataset/1h",
+        warmup_steps=1000,
+        # Warmup-Stable-Decay, 1000 warmup + 1500 stable + 500 decay = 3000.
+        # The three must sum to max_steps or transformers silently runs the
+        # remainder at min_lr_ratio; main() asserts on it rather than
+        # leaving that to a loss curve.
+        #
+        # Replaces the previous 2000-step linear decay. Under linear the
+        # rate starts falling the step warmup ends, so half the run is
+        # spent annealing; WSD holds the peak rate for a real stretch and
+        # compresses the anneal into the last 500 steps. Every smoothing
+        # method here is an intervention on the TARGET, and the target
+        # only stops moving once the alignment sharpens, so how long the
+        # model trains at the peak rate before annealing is not a neutral
+        # detail for this comparison.
+        #
+        # max_steps is in the run name (_default_run_name), so 3000-step
+        # runs land in their own checkpoint directories and cannot collide
+        # with the 2000-step linear ones. Their eval numbers are NOT
+        # comparable -- different schedule, different budget -- so keep
+        # their logs in separate grid_logs_* directories too.
+        max_steps=3000,
+        # 1000, matching the 100hr profiles, so every profile reports on the
+        # same period. Nothing decides anything on the intermediate points --
+        # the comparison is the final checkpoint -- they only need to be
+        # dense enough to see that a run is alive and descending, and 3
+        # points do that for a 3000-step run. Each eval costs ~93 s, so
+        # halving their number takes ~5 minutes off every run.
+        #
+        # Safe to change mid-sweep: eval frequency touches no training
+        # tensor and load_best_model_at_end is False in every GPU profile,
+        # so a run's final WER is identical either way. What it does change
+        # is that logs written at 500 and at 1000 cannot be lined up by eval
+        # INDEX -- index * eval_steps is the step -- so any trajectory
+        # analysis has to read the period per log rather than assume it.
+        eval_steps=1000,
+        lr_scheduler_type="warmup_stable_decay",
+        num_stable_steps=1500,
+        num_decay_steps=500,
+        decay_type="linear",
+    ),
+    "libri_light_10hr": dict(
+        train_subdir="libri_light_finetuning/webdataset/10h",
+        warmup_steps=1000,
+        # WSD, 1000 warmup + 4000 stable + 1000 decay = 6000. Same reasoning
+        # as libri_light_1hr above -- hold the peak rate long enough that the
+        # alignment, and so the target every method here modifies, settles
+        # before the anneal starts -- scaled to this profile's budget: the
+        # stable phase is 4000 steps rather than 1500, and the anneal 1000
+        # rather than 500.
+        #
+        # Replaces the previous 4000-step linear decay. As with 1hr, the
+        # 6000-step runs get their own checkpoint directories (max_steps is
+        # in the run name) but share a log file name, so their logs belong in
+        # separate grid_logs_* directories from the 4000-step ones. Their
+        # numbers are NOT comparable with those.
+        max_steps=6000,
+        # 1000, same reasoning as the 1hr profile above: uniform across
+        # profiles, still 6 points to watch a run descend, and ~9 minutes
+        # saved per run at ~93 s an eval.
+        eval_steps=1000,
+        lr_scheduler_type="warmup_stable_decay",
+        num_stable_steps=4000,
+        num_decay_steps=1000,
+        decay_type="linear",
+    ),
+    # The old 12000-step linear-decay 100 h profile lived here and was
+    # removed on 2026-09-20. Its name differed from the WSD profile below
+    # by one suffix, so passing "libri_speech_clean_100hr" silently
+    # produced a 12000-step run that looked fine and was comparable to
+    # nothing in the WSD grid -- which is exactly what happened. With the
+    # name gone, --finetune_profile is an argparse choice, so the same
+    # mistake now fails before training starts and lists what is valid.
+    # Nothing is run at 12000 any more; the 100 h grid is 15000-step WSD.
+    # Full LibriSpeech (train-clean-100 + train-clean-360 + train-other-500,
+    # ~960h combined). Unlike the profiles above, the shards for this one
+    # aren't directly under `train_subdir` -- they're split across three
+    # subdirectories, one per split (see `train_shard_subdirs` below, and
+    # `sample_util.make_dataset`'s `sub_shard_dirs` param that consumes it).
+    # Warmup-Stable-Decay. The linear-decay 12000-step profile above spends
+    # its whole life shrinking the step size, so every intermediate
+    # checkpoint sits on a different effective schedule and the last 2000
+    # steps buy almost nothing (measured: the final 1500 steps of the
+    # 8000-step runs moved the median cell by -0.0006). WSD holds the peak
+    # rate flat for 9000 steps and spends the decay only at the end, which
+    # separates "how long it trains" from "how it anneals".
+    #
+    # 1000 warmup + 9000 stable + 4000 decay = 14000. num_stable_steps and
+    # num_decay_steps must sum with warmup to max_steps or transformers
+    # silently drops the remainder to the minimum rate.
+    #
+    # Kept as its own profile rather than edited into the one above: this
+    # repo is a single NAS clone and the other machine is running the
+    # 12000-step linear grid right now. The profile name is in the run name,
+    # so the two grids cannot collide on disk and cannot be pooled by
+    # accident.
+    "libri_speech_clean_100hr_wsd": dict(
+        train_subdir="librispeech/webdataset/train-clean-100",
+        warmup_steps=1000,
+        max_steps=15000,
+        eval_steps=1000,
+        lr_scheduler_type="warmup_stable_decay",
+        # 1000 warmup + 10000 stable + 4000 decay = 15000. The three must
+        # sum to max_steps or transformers silently runs the remainder at
+        # min_lr_ratio; main() asserts on it rather than leaving that to a
+        # loss curve. save_steps=5000 divides 15000, so checkpoints land at
+        # 5000/10000/15000 and the final one -- the only one the comparison
+        # uses -- always exists.
+        num_stable_steps=10000,
+        num_decay_steps=4000,
+        decay_type="linear",
+    ),
+    "libri_speech_full_960hr": dict(
+        train_subdir="librispeech/webdataset/",
+        train_shard_subdirs=(
+            "train-clean-100", "train-clean-360", "train-other-500"),
+        warmup_steps=500,
+        max_steps=50000,
+        eval_steps=500,
+    ),
+}
+
+# Automatically synchronize save_steps with max_steps for each profile.
+for profile in _FINETUNE_PROFILES.values():
+    profile["save_steps"] = profile["max_steps"]
+
+class Wav2Vec2SPMTokenizer(PreTrainedTokenizer):
+    """Custom Tokenizer for Wav2Vec2 using SentencePiece.
+
+    Inherits from PreTrainedTokenizer to avoid the mandatory vocab.json
+    requirement of Wav2Vec2CTCTokenizer.
+    """
+
+    def __init__(self, spm_model_path: str, **kwargs: Any):
+        """Initializes the tokenizer and loads the SentencePiece model."""
+        import sentencepiece as spm
+        self.spm_model_path = spm_model_path
+        self.sp = spm.SentencePieceProcessor(model_file=spm_model_path)
+
+        # Standard CTC special tokens are passed to the base class.
+        super().__init__(
+            pad_token="<pad>",
+            unk_token="<unk>",
+            bos_token="<s>",
+            eos_token="</s>",
+            **kwargs
+        )
+
+    @property
+    def vocab_size(self) -> int:
+        """Returns the size of the SentencePiece vocabulary."""
+        return self.sp.get_piece_size()
+
+    def get_vocab(self) -> Dict[str, int]:
+        """Returns the vocabulary as a dictionary for compatibility."""
+        return {
+            self.sp.id_to_piece(i): i for i in range(self.vocab_size)
+        }
+
+    def _tokenize(self, text: str) -> List[str]:
+        """Tokenizes text using the SentencePiece engine."""
+        return self.sp.encode_as_pieces(text)
+
+    def _convert_token_to_id(self, token: str) -> int:
+        """Converts a subword piece to its integer ID."""
+        return self.sp.piece_to_id(token)
+
+    def _convert_id_to_token(self, index: int) -> str:
+        """Converts an integer ID to its subword piece."""
+        return self.sp.id_to_piece(index)
+
+    def _decode(self,
+                token_ids: List[int],
+                group_tokens: bool = True,
+                **kwargs: Any) -> str:
+        """Decodes IDs with CTC collapse and SentencePiece."""
+        if group_tokens:
+            token_ids = [k for k, _ in itertools.groupby(token_ids)]
+
+        # Remove padding and ignore index (-100).
+        filtered_ids = [
+            int(i) for i in token_ids
+            if i != self.pad_token_id and i != -100
+        ]
+        return self.sp.decode(filtered_ids) if filtered_ids else ""
+
+    def save_vocabulary(self,
+                        save_directory: str,
+                        filename_prefix: Optional[str] = None) -> tuple:
+        """Saves the SPM model file. Fixes the NotImplementedError."""
+        if not os.path.isdir(save_directory):
+            os.makedirs(save_directory)
+
+        file_name = "tokenizer.model"
+        if filename_prefix:
+            file_name = f"{filename_prefix}-{file_name}"
+
+        vocab_file = os.path.join(save_directory, file_name)
+
+        # Copy the original .model file to the checkpoint directory.
+        if os.path.abspath(self.spm_model_path) != os.path.abspath(vocab_file):
+            shutil.copyfile(self.spm_model_path, vocab_file)
+
+        return (vocab_file,)
+
+
+def clean_special_tokens(text: str) -> str:
+    """Removes start/end-of-sentence markers and extra whitespace."""
+    text = re.sub(r'^<s>\s*', '', text)
+    text = re.sub(r'\s*</s>$', '', text)
+    return text.strip()
+
+
+def make_compute_metrics(
+    processor: AutoProcessor,
+) -> Callable[[Any], Dict[str, float]]:
+    """Builds a `compute_metrics` closure bound to a specific processor.
+
+    HF `Trainer` calls `compute_metrics(pred)` with a single positional
+    argument, so anything else it needs (here, `processor`, to decode
+    predicted/label ids back to text) has to come from a closure rather
+    than an extra parameter. This factory makes that dependency explicit
+    at the call site (`compute_metrics=make_compute_metrics(processor)`)
+    instead of relying on a module-level global.
+    """
+
+    def compute_metrics(pred) -> Dict[str, float]:
+        """Compute Word Error Rate (WER) by mapping sub-labels back to vocab.
+
+        boundary_id and padding are ignored.
+
+        Args:
+            pred: A prediction object containing:
+                - predictions: Logits of shape (batch, seq, vocab * factor).
+                - label_ids: Ground truth IDs (batch, seq).
+
+        Returns:
+            A dictionary containing the 'wer' score.
+        """
+        pred_logits = pred.predictions
+        pred_ids = np.argmax(pred_logits, axis=-1)
+
+        # Prepare labels: handle the -100 ignore index.
+        label_ids = pred.label_ids.copy()
+        label_ids[label_ids == -100] = processor.tokenizer.pad_token_id
+
+        # Decode predictions (CTC grouping enabled).
+        pred_str = processor.batch_decode(
+            pred_ids,
+            group_tokens=True,
+            skip_special_tokens=False,
+        )
+
+        # Decode ground truth labels.
+        label_str = processor.batch_decode(
+            label_ids,
+            group_tokens=False,
+            skip_special_tokens=False
+        )
+
+        # Clean and calculate WER.
+        pred_str = [clean_special_tokens(s) for s in pred_str]
+        label_str = [clean_special_tokens(s) for s in label_str]
+
+        wer_metric = evaluate.load("wer")
+        wer_score = wer_metric.compute(predictions=pred_str, references=label_str)
+
+        return {"wer": wer_score}
+
+    return compute_metrics
+
+
+@dataclass
+class DataCollatorCTCWithPadding:
+    """Data collator that dynamically pads inputs and labels for CTC training.
+
+    This class pads the input audio features and the corresponding label
+    sequences to the length of the longest element in the batch. It also
+    replaces padding tokens in the labels with -100.
+
+    Attributes:
+        processor (AutoProcessor): The processor used for feature extraction and tokenization.
+        padding (Union[bool, str]): Padding strategy. Defaults to "longest" to pad to the
+            longest sequence in the batch.
+    """
+
+    processor: AutoProcessor
+    padding: Union[bool, str] = "longest"
+
+    def __call__(
+        self, features: List[Dict[str, Union[List[int], torch.Tensor]]]
+    ) -> Dict[str, torch.Tensor]:
+        """Pad inputs and labels in a batch for model training.
+
+        Args:
+            features: A list of feature dictionaries, each containing:
+                - "input_values": the audio features (list or tensor).
+                - "labels": the tokenized label sequence.
+
+        Returns:
+            A dictionary with padded input tensors and labels ready for the model:
+            - "input_values": Padded input audio feature tensor.
+            - "labels": Padded label tensor with padding tokens replaced by -100.
+        """
+        input_features = [{"input_values": feature["input_values"]}
+                          for feature in features]
+        label_features = [{"input_ids": feature["labels"]}
+                          for feature in features]
+        # Use the processor's pad method to pad input audio features to the same length.
+        # Without return_attention_mask, Wav2Vec2 does not generate the mask.
+        batch = self.processor.pad(
+            input_features,
+            padding=self.padding,
+            return_tensors="pt",
+            return_attention_mask=True
+        )
+
+        # Pad the label sequences separately using the processor's pad method.
+        labels_batch = self.processor.pad(
+            labels=label_features,
+            padding=self.padding,
+            return_tensors="pt"
+        )
+
+        # Replace padding tokens in labels with -100
+        labels = labels_batch["input_ids"].masked_fill(
+            labels_batch.attention_mask.ne(1), -100
+        )
+
+        # Add the processed labels to the batch dictionary.
+        batch["labels"] = labels
+        return batch
+
+
+class MyCtcTrainer(Trainer):
+    """Custom Trainer to override loss computation with custom Shc loss."""
+    def __init__(self, vocab_size=None, alpha=0.0, beta=0.0,
+                peak_preserving=False, gamma=0.0, peak_capping=False,
+                smoothing_space="label", alpha_mode="fixed",
+                entropy_match_alpha_max=1.0, entropy_match_kappa=1.0,
+                alpha_switch_step=0, alpha_after_switch=0.0,
+                fas_eps=1e-10, asap_eps=1e-5, blank_gate="none",
+                dynamic_batching=False, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # To include the boundary token at the end.
+        self.custom_vocab_size = vocab_size
+        self.alpha = alpha
+        self.beta = beta
+        self.alpha_switch_step = alpha_switch_step
+        self.alpha_after_switch = alpha_after_switch
+        self._switch_announced = False
+        self.peak_preserving = peak_preserving
+        self.gamma = gamma
+        self.peak_capping = peak_capping
+        self.smoothing_space = smoothing_space
+        self.alpha_mode = alpha_mode
+        self.entropy_match_alpha_max = entropy_match_alpha_max
+        self.entropy_match_kappa = entropy_match_kappa
+        self.fas_eps = fas_eps
+        self.asap_eps = asap_eps
+        self.blank_gate = blank_gate
+        self.dynamic_batching = dynamic_batching
+
+    def get_train_dataloader(self) -> DataLoader:
+        """Builds the training DataLoader.
+
+        Default behavior (`dynamic_batching=False`) is unchanged: fixed
+        `per_device_train_batch_size`, with `train_dataset` already
+        length-bucketed by `sample_util._length_bucketed_stream` so that
+        each `batch_size`-sized chunk DataLoader groups is
+        length-homogeneous.
+
+        When `dynamic_batching=True`, `train_dataset` is instead a
+        WebDataset pipeline built with `sample_util.DynamicBatchConfig`
+        (see `sample_util._dynamic_length_batched_stream`): each item it
+        yields is ALREADY one fully collated training batch, with sample
+        count varying batch-to-batch so that `sample_count *
+        max_input_length` never exceeds a fixed budget -- this is what
+        actually bounds peak memory against outlier-length audio, unlike a
+        fixed `per_device_train_batch_size` which can still combine
+        several long-audio outliers into one OOM-ing batch.
+
+        The standard Trainer path can't express a varying batch size (it
+        always asks DataLoader to group a fixed `batch_size` via
+        `collate_fn`), so this uses `DataLoader(batch_size=None)` instead,
+        which disables DataLoader's own batching/collation and passes each
+        already-batched item straight through.
+        """
+        if not self.dynamic_batching:
+            return super().get_train_dataloader()
+
+        if self.train_dataset is None:
+            raise ValueError("Trainer: training requires a train_dataset.")
+
+        dataloader = DataLoader(
+            self.train_dataset,
+            batch_size=None,
+            num_workers=self.args.dataloader_num_workers,
+            pin_memory=self.args.dataloader_pin_memory,
+            persistent_workers=self.args.dataloader_persistent_workers,
+        )
+        return self.accelerator.prepare(dataloader)
+
+    def log(self, logs, *args, **kwargs):
+        """Folds the entropy-matched alpha diagnostics into the normal log.
+
+        With --alpha_mode=entropy_matched the smoothing weight is solved
+        for per example and changes over training, so the run's behaviour
+        is not recoverable from its configuration the way a fixed alpha
+        is. Recording it has to happen during the run: `save_steps`
+        equals `max_steps`, so a finished run leaves a single checkpoint
+        and probing that gives one point, not a trajectory.
+
+        Merging into the existing log dict rather than printing
+        separately keeps the output parseable by the sweep
+        orchestrators, which read each `{...}` line with
+        `ast.literal_eval` and key off "eval_wer"/"train_runtime" --
+        extra keys are ignored there.
+
+        The dict is empty for every other alpha_mode, so this is inert
+        unless entropy matching actually ran.
+        """
+        as_stats = shc_loss_util.pop_last_active_support_stats()
+        if as_stats:
+            logs = dict(logs)
+            logs.update({k: round(v.item(), 4) for k, v in as_stats.items()})
+
+        fas_stats = shc_loss_util.pop_last_floored_active_support_stats()
+        if fas_stats:
+            logs = dict(logs)
+            logs.update({k: round(float(v), 4) for k, v in fas_stats.items()})
+
+        asap_stats = shc_loss_util.pop_last_asap_stats()
+        if asap_stats:
+            logs = dict(logs)
+            logs.update({k: round(float(v), 4) for k, v in asap_stats.items()})
+
+        stats = shc_loss_util.pop_last_entropy_match_stats()
+        if stats:
+            alpha = stats["alpha"].float()
+            quantiles = torch.quantile(
+                alpha, torch.tensor([0.1, 0.5, 0.9], device=alpha.device))
+            logs = dict(logs)
+            logs.update({
+                "em_alpha_p10": round(quantiles[0].item(), 6),
+                "em_alpha_p50": round(quantiles[1].item(), 6),
+                "em_alpha_p90": round(quantiles[2].item(), 6),
+                # Fraction of examples pinned at the reachable ceiling,
+                # i.e. asked for more entropy than the mixture can give.
+                "em_at_ceiling": round(
+                    (alpha >= stats["peak"].float() - 1e-6).float()
+                    .mean().item(), 4),
+                "em_at_zero": round((alpha <= 1e-9).float().mean().item(), 4),
+                "em_h_lo": round(stats["h_lo"].float().mean().item(), 4),
+                "em_h_target": round(
+                    stats["h_target"].float().mean().item(), 4),
+                "em_h_ceiling": round(
+                    stats["h_ceiling"].float().mean().item(), 4),
+            })
+        super().log(logs, *args, **kwargs)
+
+    def current_alpha(self) -> float:
+        """The smoothing weight for the step being computed right now.
+
+        With --alpha_switch_step the weight is piecewise-constant in
+        training step: `alpha` up to the switch, `alpha_after_switch` from
+        the switch onward. This separates *when* smoothing acts from *how
+        much*: a run that smooths only early (0.1 -> 0.0) tests smoothing
+        as a warmup regularizer whose bias is then annealed away, while
+        the reverse (0.0 -> 0.1) tests it as a late-stage calibrator
+        applied once the alignment has already sharpened. A single fixed
+        alpha cannot distinguish those two.
+        """
+        if self.alpha_switch_step <= 0:
+            return self.alpha
+        if self.state.global_step >= self.alpha_switch_step:
+            if not self._switch_announced:
+                print(f"[alpha-schedule] global_step="
+                      f"{self.state.global_step} >= "
+                      f"{self.alpha_switch_step}: alpha {self.alpha} -> "
+                      f"{self.alpha_after_switch}", flush=True)
+                self._switch_announced = True
+            return self.alpha_after_switch
+        return self.alpha
+
+    def compute_loss(self, model, inputs, return_outputs=False, **kwargs):
+        with torch.device(inputs["input_values"].device.type):
+            target = inputs.pop("labels")
+            outputs = model(**inputs)
+
+            input_lengths = inputs["attention_mask"].sum(-1)
+
+            actual_model = model.module if hasattr(model, "module") else model
+
+            logits_lengths = actual_model._get_feat_extract_output_lengths(
+                input_lengths)
+
+            logits = outputs["logits"]
+            target_lengths = torch.sum(
+                (target >= 0).type(torch.int32), axis=1)
+
+            # Custom SHC Loss implementation
+            loss = shc_loss.ShcLoss.apply(
+                target,
+                target_lengths,
+                logits.log_softmax(2),
+                logits_lengths,
+                self.custom_vocab_size,
+                self.current_alpha(),
+                self.beta,
+                self.peak_preserving,
+                self.gamma,
+                self.peak_capping,
+                self.smoothing_space,
+                self.alpha_mode,
+                self.entropy_match_alpha_max,
+                self.entropy_match_kappa,
+                self.fas_eps,
+                self.asap_eps,
+                # peak_thresh / peak_gate are positional here only so that
+                # blank_gate lands in the right slot; they keep the loss's
+                # own defaults because fas_peak_gated is not wired into this
+                # script yet.
+                0.9,
+                "high",
+                self.blank_gate,
+            ).mean()
+
+        if return_outputs:
+            return loss, outputs
+        else:
+            return loss
+
+
+class StopAtStepCallback(TrainerCallback):
+    """Ends training early at `stop_at_step`, leaving a checkpoint there.
+
+    Deliberately NOT the same as setting --max_steps to that value: the LR
+    scheduler is sized from max_steps, so a 1500-step run decays the
+    learning rate to zero by 1500, whereas stopping a 2000-step run at
+    1500 leaves both the weights AND the optimizer/scheduler state exactly
+    where a full 2000-step run would have them. Only the latter can be
+    resumed into a continuation that is a faithful second half of the
+    standard schedule -- which is the whole point of branching two
+    smoothing settings off one shared trunk.
+    """
+
+    def __init__(self, stop_at_step: int):
+        self.stop_at_step = stop_at_step
+
+    def on_step_end(self, args, state, control, **kwargs):
+        if state.global_step >= self.stop_at_step:
+            control.should_save = True
+            control.should_training_stop = True
+        return control
+
+
+class SaveAtStepsCallback(TrainerCallback):
+    """Checkpoints at an explicit list of steps instead of a fixed period.
+
+    `save_steps` can only express a uniform interval, so a schedule like
+    5000/10000/14000 is not reachable with it: the interval would have to
+    divide every one of them. Forcing `control.should_save` works because
+    the Trainer checks that flag directly, independently of
+    `save_strategy`; with the strategy set to "no" the default flow
+    callback never sets it, so these are the only checkpoints written.
+
+    Ordering matters: this runs after DefaultFlowCallback, so setting the
+    flag here wins.
+    """
+
+    def __init__(self, steps):
+        self.steps = set(steps)
+
+    def on_step_end(self, args, state, control, **kwargs):
+        if state.global_step in self.steps:
+            control.should_save = True
+        return control
+
+
+def _fmt_float(x: float) -> str:
+    """Formats a float for use in a directory name, e.g. 0.02 -> '0p02'."""
+    return str(x).replace(".", "p").replace("-", "neg")
+
+
+def _batching_suffix(args: argparse.Namespace) -> str:
+    """Suffix distinguishing batching-strategy runs in the auto-generated
+    run name.
+
+    Without this, e.g. a --dynamic_batching run and a
+    --length_bucket_window_mult comparison run with otherwise identical
+    --alpha/--beta/--vocab_size/--finetune_profile/--max_steps produce the
+    EXACT SAME run name -- meaning the second run silently overwrites the
+    first run's checkpoint directory (this actually happened: a
+    --length_bucket_window_mult 0 comparison run clobbered a same-named
+    fixed-bucketing run's checkpoint-2500). Batching mode isn't a
+    hyperparameter of the model, but it's exactly the kind of "otherwise
+    identical run" axis people compare against each other, so it needs to
+    be part of the name too.
+    """
+    if args.dynamic_batching:
+        suffix = f"_dynbatch{args.max_batch_audio_len}"
+        if args.max_dynamic_batch_size is not None:
+            suffix += f"_cap{args.max_dynamic_batch_size}"
+        return suffix
+    return f"_bucket{args.length_bucket_window_mult}"
+
+
+def _default_run_name(args: argparse.Namespace) -> str:
+    """Builds a run name from the *actual* CLI args (used when --run_name
+    is not given).
+
+    Unlike the old hardcoded `out_name` string, this reflects whatever
+    --alpha/--beta/--max_steps/--vocab_size were actually passed, so two
+    runs with different hyperparameters never collide on directory name
+    unless they truly are identical runs. --finetune_profile is included
+    too, so e.g. 10hr and 100hr runs with the same alpha/beta don't collide.
+    The batching strategy (--dynamic_batching / --length_bucket_window_mult)
+    is included via `_batching_suffix` for the same reason -- see its
+    docstring for the concrete collision this fixes. --seed is included
+    too, for the same reason again: multi-seed comparison runs (e.g. 3
+    repeats to average out run-to-run training noise) are otherwise
+    identical in every other naming input and would overwrite each other.
+    """
+    suffix = _batching_suffix(args) + f"_seed{args.seed}"
+    # Only tagged when non-default, so every existing run name (all of
+    # which were label-space) keeps resolving to the same directory.
+    if args.smoothing_space != "label":
+        suffix += f"_{args.smoothing_space}space"
+    if args.alpha_mode == "entropy_matched_selective":
+        suffix += "_shmatch"
+    elif args.alpha_mode == "floored_active_support":
+        # alpha and beta are already in the name's prefix, and both are live
+        # knobs here (unlike active_support, which ignores beta). Only the
+        # activity threshold is new, and two cells differing solely by it
+        # would otherwise share one checkpoint directory.
+        suffix += f"_fas_eps{_fmt_float(args.fas_eps)}"
+    elif args.alpha_mode in ("aws", "mos"):
+        # These two keep alpha meaningful (it is the per-element rate) and
+        # read fas_eps as a live knob, exactly like floored_active_support.
+        # Without their own tag they fell through to "_hmatch" below, where
+        # aws, mos and alignment_biased at the same alpha all shared one
+        # directory -- measured on 2026-09-21, when the CTC MOS run
+        # silently overwrote the CTC AWS checkpoint at alpha=0.05. The old
+        # "_hmatch" runs keep their names; only new runs get these.
+        suffix += f"_{args.alpha_mode}_eps{_fmt_float(args.fas_eps)}"
+    elif args.alpha_mode == "alignment_biased":
+        suffix += "_abs"
+    elif args.alpha_mode == "asap":
+        # Same reasoning as the FAS branch: alpha and beta are already in
+        # the prefix, and the threshold is what else distinguishes a cell.
+        suffix += f"_asap_eps{_fmt_float(args.asap_eps)}"
+    if args.blank_gate != "none":
+        suffix += f"_{args.blank_gate}"
+    elif args.alpha_mode == "active_support":
+        # alpha stays meaningful here (it is the per-class rate), so
+        # unlike the solved-for modes the name keeps it and only adds a
+        # tag. Without this branch the mode would fall through to the
+        # "_hmatch" one below and collide with entropy-matched runs.
+        suffix += "_actsup"
+    elif args.alpha_mode != "fixed":
+        # alpha is solved for, so the alpha/beta already in the name
+        # are meaningless; what identifies the run is the clamp and
+        # the repayment fraction instead.
+        suffix += "_hmatch"
+        if args.entropy_match_alpha_max < 1.0:
+            suffix += f"_amax{_fmt_float(args.entropy_match_alpha_max)}"
+        if args.entropy_match_kappa < 1.0:
+            suffix += f"_kappa{_fmt_float(args.entropy_match_kappa)}"
+    # The alpha already in the name is only the pre-switch value, so
+    # without this a 0.1->0.0 run and a plain alpha=0.1 run land in the
+    # same checkpoint directory and silently overwrite each other.
+    if args.alpha_switch_step > 0:
+        suffix += (f"_sw{args.alpha_switch_step}"
+                   f"a{_fmt_float(args.alpha_after_switch)}")
+    # A trunk that stops early, and each branch resumed off it, otherwise
+    # collide with the plain full-length run at the same alpha.
+    if args.stop_at_step > 0:
+        suffix += f"_stop{args.stop_at_step}"
+    if args.resume_from_checkpoint:
+        resumed_from = os.path.basename(
+            args.resume_from_checkpoint.rstrip("/")).replace("checkpoint-",
+                                                             "")
+        suffix += f"_res{resumed_from}"
+    if args.vocab_size is not None:
+        if args.peak_preserving:
+            return (f"{args.finetune_profile}_shc_{args.max_steps}steps_"
+                    f"peakpreserving_gamma_{_fmt_float(args.gamma)}"
+                    f"_unigram_{args.vocab_size}{suffix}")
+        if args.peak_capping:
+            return (f"{args.finetune_profile}_shc_{args.max_steps}steps_"
+                    f"peakcapping_alpha_{_fmt_float(args.alpha)}"
+                    f"_unigram_{args.vocab_size}{suffix}")
+        return (f"{args.finetune_profile}_shc_{args.max_steps}steps_alpha_"
+                f"{_fmt_float(args.alpha)}_beta_{_fmt_float(args.beta)}"
+                f"_unigram_{args.vocab_size}{suffix}")
+    return (f"{args.finetune_profile}_ctc_{args.max_steps}steps_default_vocab"
+            f"{suffix}")
+
+
+def parse_args():
+    """Parse command line arguments."""
+    parser = argparse.ArgumentParser(
+        description="Wav2Vec2 Training with Dynamic Vocab Size")
+
+    parser.add_argument("--vocab_size", type=int, default=None,
+                        help="Vocabulary size (e.g., 32, 128). Omit to use "
+                             "the default wav2vec2 tokenizer/vocab.")
+    parser.add_argument("--alpha", type=float, default=0.0,
+                        help="(e.g., NZ smoothing coeff.).")
+    parser.add_argument("--beta", type=float, default=0.0,
+                        help="(e.g., NZ smoothing coeff.).")
+    parser.add_argument(
+        "--peak_preserving", action="store_true", default=False,
+        help="Use apply_peak_preserving_selective_estimated_target_"
+             "smoothing (driven by --gamma) instead of the alpha/beta-"
+             "driven SETS post-processing. --alpha/--beta are ignored "
+             "when this is set.")
+    parser.add_argument(
+        "--gamma", type=float, default=0.0,
+        help="Fraction of each non-peak class's probability mass "
+             "redistributed uniformly over the other active, non-peak "
+             "classes. Only used when --peak_preserving is set.")
+    parser.add_argument(
+        "--peak_capping", action="store_true", default=False,
+        help="Use apply_peak_capping_selective_estimated_target_"
+             "smoothing (driven by --alpha as the confidence-cap "
+             "parameter, cap = 1 - alpha) instead of the alpha/beta-"
+             "driven SETS post-processing. --beta/--gamma are ignored "
+             "when this is set. Ignored if --peak_preserving is set.")
+    parser.add_argument(
+        "--smoothing_space", type=str, default="label",
+        choices=["label", "class", "hybrid"],
+        help="Which axis the smoothing is applied to. 'label' (default) "
+             "smooths the alignment posterior over blank-augmented label "
+             "POSITIONS before scattering to classes -- the historical "
+             "behavior every SETS/PP-SETS/PC-SETS result so far used. "
+             "'class' scatters first and smooths over actual output "
+             "CLASSES. These are different algorithms, not two spellings "
+             "of one: in 'label' space a uniform mixin lands as roughly "
+             "50%% blank plus an occurrence-weighted prior over only the "
+             "classes present in the transcript, whereas in 'class' space "
+             "it is genuinely uniform over the vocabulary. 'hybrid' takes "
+             "the two ends of the --beta blend from different axes: at "
+             "beta=1 it keeps the label-space masked uniform unchanged "
+             "(blank-heavy and occurrence-weighted, byte-for-byte the "
+             "'label' result), while at beta=0 it uses a genuine uniform "
+             "over classes, i.e. textbook label smoothing, instead of a "
+             "uniform over label positions. --beta therefore interpolates "
+             "between two named methods, and unlike 'label' the result "
+             "does not depend on how wide the batch padded the label "
+             "axis. See the module docstring of "
+             "cwk/loss/pytorch/shc_loss_util.py.")
+    parser.add_argument(
+        "--blank_gate", type=str, default="none",
+        choices=["none", "blank_only", "label_only"],
+        help="Restrict smoothing to the frames where the blank class holds "
+             "more than half the alignment posterior ('blank_only') or to "
+             "those where it does not ('label_only'). Unlike "
+             "alpha_mode='fas_peak_gated' this splits on WHICH class wins, "
+             "not by how much: 93.6%% of frames have a peak above 0.9 but "
+             "only 43.8%% are blank-dominant.")
+    parser.add_argument(
+        "--alpha_mode", type=str, default="fixed",
+        choices=["fixed", "entropy_matched", "entropy_matched_selective",
+                 "active_support", "floored_active_support",
+                 "aws", "pas_h", "pas_u",
+                 "mos", "alignment_biased", "asap"],
+        help="How the smoothing weight is chosen. 'pas_h' and 'pas_u' "
+             "are PAS (see PAS_SPEC.md): label axis, blank EXCLUDED from "
+             "the support, per-position height alpha/L with L the number "
+             "of non-blank positions. 'pas_h' puts the mixin on the "
+             "active positions only, 'pas_u' on every non-blank position; "
+             "neither reads --beta. They are NOT the same as "
+             "'active_support'/'aws', which include blank and divide by "
+             "the full 2L-1 width. 'fixed' (default) "
+             "uses --alpha as given. 'entropy_matched' ignores "
+             "--alpha/--beta and instead solves, per example, for the "
+             "alpha whose smoothed target has the same mean per-frame "
+             "entropy as the model's own acoustic posterior -- i.e. it "
+             "repays the information the target leaked from the labels. "
+             "Requires --smoothing_space=class. "
+             "'entropy_matched_selective' (C-SETS-SH) is the same solve "
+             "but measures the model's entropy on the active set only, "
+             "so both entropies live on the same support. Without that, "
+             "H(p) spans all C classes while H(q~) spans the ~3 reachable "
+             "ones, H(p) is structurally larger, and early in training it "
+             "exceeds log N outright -- alpha then pins at its cap for the "
+             "whole run and the model never learns. "
+             "'active_support' is textbook uniform smoothing restricted "
+             "to the classes reachable at each frame: every active class "
+             "gets alpha/C exactly as it would under uniform smoothing, "
+             "inactive classes get nothing, and only the mass handed out "
+             "(alpha * N_active/C) is taken from the target. Unlike "
+             "beta=1 SETS it holds the per-class RATE fixed rather than "
+             "the total mass, so it needs a much larger alpha to move "
+             "the same amount of probability. Requires "
+             "--smoothing_space=class; --beta is unused.")
+    parser.add_argument(
+        "--entropy_match_alpha_max", type=float, default=1.0,
+        help="Upper clamp on the solved alpha. 1.0 (default) disables "
+             "it. Only used with --alpha_mode=entropy_matched.")
+    parser.add_argument(
+        "--entropy_match_kappa", type=float, default=1.0,
+        help="Fraction of the entropy gap to close, in (0, 1]. 1.0 "
+             "(default) is exact matching; lower values repay only "
+             "part of the leaked information. Only used with "
+             "--alpha_mode=entropy_matched.")
+    parser.add_argument(
+        "--fas_eps", type=float, default=1e-10,
+        help="Activity threshold for --alpha_mode=floored_active_support: a "
+             "class is active when its target probability EXCEEDS this. The "
+             "default 1e-10 sits below the smallest non-zero value the "
+             "scattered posterior produces (measured 4.7e-10 to 9.3e-10), "
+             "so it means 'every class the alignment can reach'. Raising it "
+             "weakens the smoothing rather than merely reinterpreting it -- "
+             "1e-6 costs about 3 active classes and 3.1e-3 about 8, and the "
+             "latter measured 0.2119 WER against 0.1964 at 1e-6. Ignored by "
+             "every other alpha_mode.")
+    parser.add_argument(
+        "--asap_eps", type=float, default=1e-5,
+        help="Activity threshold for --alpha_mode=asap, applied to the "
+             "ACOUSTIC posterior softmax(logits) rather than to the "
+             "alignment posterior. It is NOT interchangeable with "
+             "--fas_eps: a softmax has no structural zeros, so FAS's "
+             "1e-10 would mark all C classes active and collapse the "
+             "method to textbook uniform LS. Measured mean N_active on a "
+             "trained 32-class model -- 1e-2: 2.1, 1e-3: 3.5, 1e-4: 5.7, "
+             "1e-5: 22.2, 1e-6: 31.3, 1e-7: 32.0. Note the same cutoff "
+             "selects very differently on the two posteriors: at 1e-5 the "
+             "alignment rule keeps 6.8 percent of classes and the "
+             "acoustic rule 69.5 percent, so matched eps is not matched "
+             "smoothing strength. Ignored by every other alpha_mode.")
+    parser.add_argument(
+        "--alpha_switch_step", type=int, default=0,
+        help="Training step at which --alpha is replaced by "
+             "--alpha_after_switch for the rest of the run. 0 (default) "
+             "keeps --alpha constant, i.e. every existing run is "
+             "unaffected. Steps strictly below this use --alpha; this "
+             "step and later use --alpha_after_switch.")
+    parser.add_argument(
+        "--alpha_after_switch", type=float, default=None,
+        help="Smoothing weight from --alpha_switch_step onward. Required "
+             "when --alpha_switch_step is set.")
+    parser.add_argument(
+        "--stop_at_step", type=int, default=0,
+        help="Stop training at this step, keeping the --max_steps LR "
+             "schedule intact (see StopAtStepCallback). Pair with "
+             "--save_steps equal to it to leave a resumable checkpoint "
+             "there. 0 (default) trains the full schedule.")
+    parser.add_argument(
+        "--resume_from_checkpoint", type=str, default=None,
+        help="Checkpoint directory to continue from, e.g. a trunk run's "
+             "checkpoint-1500. Weights, optimizer and LR scheduler are "
+             "all restored, so two runs resumed from one checkpoint with "
+             "different --alpha differ only in the smoothing applied over "
+             "the remaining steps.")
+
+    # --- Run naming / output location -------------------------------------
+    parser.add_argument(
+        "--run_name", type=str, default=None,
+        help="Directory name for this run's checkpoints, under "
+             "--checkpoint_top_dir. If omitted, a name is auto-generated "
+             "from --alpha/--beta/--max_steps/--vocab_size (see "
+             "_default_run_name()) and printed at startup.")
+    parser.add_argument(
+        "--model_name", type=str, default="facebook/wav2vec2-base",
+        help="Pretrained checkpoint to fine-tune. The PAS sweep uses "
+             "'facebook/wav2vec2-large-lv60': SSL only "
+             "(Wav2Vec2ForPreTraining), so 100h fine-tuning means what it "
+             "says. Do NOT use 'wav2vec2-large-960h-lv60-self' -- that is "
+             "already fine-tuned on 960h. large also has "
+             "feat_extract_norm='layer', so batched inference is safe, "
+             "unlike base's 'group' where padding changes the output at "
+             "valid frames.")
+    parser.add_argument(
+        "--checkpoint_top_dir", type=str, default=_DEFAULT_CHECKPOINT_TOP_DIR,
+        help="Parent directory under which --run_name is created; this is "
+             "where TrainingArguments.output_dir points, i.e. where "
+             "training checkpoints actually get written. (Previously "
+             "called `model_top_dir`.)")
+
+    # --- Data directories ---------------------------------------------------
+    parser.add_argument(
+        "--db_top_dir", type=str, default=_DEFAULT_DB_TOP_DIR,
+        help="Top-level database directory. Used to derive the default "
+             "--train_top_dir / --test_top_dir if those aren't given "
+             "explicitly.")
+    parser.add_argument(
+        "--train_top_dir", type=str, default=None,
+        help="Training dataset directory. Defaults to "
+             "'<db_top_dir>/<train_subdir of --finetune_profile>'.")
+    parser.add_argument(
+        "--test_top_dir", type=str, default=None,
+        help="Evaluation dataset directory. Overrides --eval_splits and "
+             "evaluates on that one directory alone.")
+    parser.add_argument(
+        "--eval_splits", type=str, default="dev-clean,dev-other",
+        help="Comma-separated splits under "
+             "'<db_top_dir>/librispeech/webdataset' to evaluate on every "
+             "--eval_steps. Development sets are the default because the "
+             "test sets must not steer any choice made during a run. More "
+             "than one split is passed to HF Trainer as a dict, which it "
+             "supports natively and reports as 'eval_<split>_wer'; the "
+             "single-split case keeps the plain 'eval_wer' key. Ignored "
+             "when --test_top_dir is given.")
+    parser.add_argument(
+        "--resource_top_dir", type=str, default=_DEFAULT_RESOURCE_TOP_DIR,
+        help="Directory containing shared resources referenced by name, "
+             "such as the SentencePiece models "
+             "('librispeech_unigram_{vocab_size}.model'). (Previously "
+             "called `spm_top_dir`.)")
+
+    # --- Fine-tuning dataset / schedule profile ------------------------------
+    parser.add_argument(
+        "--finetune_profile", choices=sorted(_FINETUNE_PROFILES.keys()),
+        default="libri_light_1hr",
+        help="Fine-tuning dataset preset: picks the default --train_top_dir "
+             "(under --db_top_dir) plus a warmup_steps/max_steps/eval_steps/"
+             "save_steps schedule sized for that amount of data. Any of "
+             "--warmup_steps/--max_steps/--eval_steps/--save_steps/"
+             "--train_top_dir passed explicitly overrides just that value.")
+
+    # --- GPU / training hyperparameter profile ------------------------------
+    parser.add_argument(
+        "--gpu_profile", choices=sorted(_GPU_PROFILES.keys()), default="4090",
+        help="Preset hyperparameter bundle to start from (matches what "
+             "used to be the if-0/if-1 blocks). Any of the flags below, "
+             "if passed explicitly, overrides just that value on top of "
+             "the chosen profile.")
+    parser.add_argument(
+        "--seed", type=int, default=42,
+        help="Random seed. Controls both TrainingArguments' own RNGs "
+             "(weight init, etc. -- HF's own default is 42) AND the "
+             "training WebDataset stream's length-bucketing/dynamic-"
+             "batching per-window shuffle (see sample_util.make_dataset's "
+             "`seed` / DynamicBatchConfig.seed), so a single --seed value "
+             "gives you a fully independent run for multi-seed comparisons "
+             "(e.g. averaging N runs with different --seed to distinguish "
+             "a real effect from run-to-run training noise).")
+    parser.add_argument("--per_device_train_batch_size", type=int, default=None)
+    parser.add_argument("--per_device_eval_batch_size", type=int, default=None)
+    parser.add_argument("--learning_rate", type=float, default=None)
+    parser.add_argument("--gradient_accumulation_steps", type=int, default=None)
+    parser.add_argument("--warmup_steps", type=int, default=None)
+    parser.add_argument("--max_steps", type=int, default=None)
+    parser.add_argument("--save_steps", type=int, default=None)
+    parser.add_argument(
+        "--save_at_steps", type=str, default=None,
+        help="Comma-separated steps to checkpoint at, e.g. "
+             "'5000,10000,14000'. Overrides --save_steps: save_strategy "
+             "becomes 'no' and a callback writes exactly these. Use when "
+             "the wanted steps have no common divisor that is also a "
+             "sensible period.")
+    parser.add_argument(
+        "--gpu_memory_fraction", type=float, default=0.0,
+        help="Cap this process at that fraction of the card, via "
+             "torch.cuda.set_per_process_memory_fraction. 0 (default) "
+             "leaves PyTorch unconstrained, which is the historical "
+             "behaviour. Set it when two runs share a GPU: the caching "
+             "allocator never returns memory to the driver, so each "
+             "process's reservation is its own historical peak, and a run "
+             "that happens to meet a large batch early locks that share "
+             "away for good. Both 100hr OOMs had the same shape -- the "
+             "dying process was using only 9.5 GiB and asking for 2.4 "
+             "more, while its neighbour sat on 19-20 GiB of a 31.4 GiB "
+             "card. A cap makes that impossible. It does NOT make OOM "
+             "impossible: a batch whose live activations exceed the cap "
+             "now fails deterministically instead of starving its "
+             "neighbour, so pair this with a --save_steps small enough "
+             "that a failure costs one checkpoint interval, not the run. "
+             "Allocator policy only -- it cannot change any number the "
+             "run produces. Ignored on cards below "
+             f"{_MEMORY_FRACTION_MIN_GIB:.0f} GiB, which cannot fit two "
+             "runs anyway -- see the bypass in main().")
+    parser.add_argument("--eval_steps", type=int, default=None)
+    # Learning-rate schedule. None means "take it from the profile"; the
+    # profile loop below only fills a key it finds already declared here.
+    parser.add_argument("--lr_scheduler_type", type=str, default=None,
+                        help="HF scheduler name, e.g. linear (default) or "
+                             "warmup_stable_decay.")
+    parser.add_argument("--num_stable_steps", type=int, default=None,
+                        help="warmup_stable_decay only: steps held at the "
+                             "peak rate after warmup.")
+    parser.add_argument("--num_decay_steps", type=int, default=None,
+                        help="warmup_stable_decay only: steps of the final "
+                             "decay. warmup + stable + decay must equal "
+                             "--max_steps.")
+    parser.add_argument("--decay_type", type=str, default=None,
+                        help="warmup_stable_decay only: linear or cosine.")
+    parser.add_argument("--logging_steps", type=int, default=25)
+    parser.add_argument("--load_best_model_at_end", type=bool, default=None)
+    parser.add_argument("--gradient_checkpointing", action="store_true",
+                        default=True)
+    parser.add_argument("--no_gradient_checkpointing",
+                        dest="gradient_checkpointing", action="store_false")
+    parser.add_argument("--bf16", action="store_true", default=True)
+    parser.add_argument("--no_bf16", dest="bf16", action="store_false")
+    parser.add_argument("--eval_accumulation_steps", type=int, default=1)
+
+    # --- Data loading parallelism --------------------------------------------
+    # With 0 (the default), the WebDataset pipeline -- including the
+    # length-bucketing/dynamic-batching window (see below), which has to
+    # buffer+decode a full window's worth of audio before it can yield
+    # anything -- runs entirely in the main process, serially before each
+    # GPU step (i.e. the GPU sits idle while that happens). Setting this >0
+    # lets PyTorch DataLoader workers decode/bucket/collate upcoming
+    # batches in the background while the GPU is busy with the current one.
+    # `wds.WebDataset` already shards its inputs across workers correctly
+    # by default (`workersplitter=wds.split_by_worker`, verified against
+    # the installed webdataset version) -- no data duplication risk, so
+    # this is safe to raise on a machine with CPU cores to spare.
+    parser.add_argument(
+        "--dataloader_num_workers", type=int, default=0,
+        help="Number of DataLoader worker processes for prefetching. 0 "
+             "(default) = no overlap between data loading and GPU compute; "
+             "the length-bucketing/dynamic-batching window fill (and its "
+             "audio decode cost) happens serially before each step. >0 "
+             "overlaps that with GPU compute in background worker "
+             "processes -- try 4-8 if CPU cores are available "
+             "(`nproc`/`uptime` to check headroom).")
+    parser.add_argument(
+        "--dataloader_persistent_workers", action="store_true", default=False,
+        help="Keep worker processes alive between epochs instead of "
+             "respawning them (saves worker startup cost on each restart "
+             "of the streaming dataset). Only valid with "
+             "--dataloader_num_workers > 0.")
+
+    # --- Length-based batch bucketing (training data only) ------------------
+    parser.add_argument(
+        "--length_bucket_window_mult", type=int, default=50,
+        help="Local length-bucketing window size for the *training* "
+             "WebDataset stream, as a multiple of "
+             "--per_device_train_batch_size (see "
+             "sample_util._length_bucketed_stream). Reduces per-batch "
+             "padding waste (and thus wall-clock time) by reordering the "
+             "sample stream so each batch is drawn from a locally length-"
+             "sorted window instead of raw shard order, while still "
+             "shuffling the order batches come out in so training doesn't "
+             "sweep short-to-long. Pass <= 1 to disable.")
+
+    # --- Dynamic (length-budget) batching (training data only) --------------
+    parser.add_argument(
+        "--dynamic_batching", action="store_true", default=False,
+        help="Replace fixed --per_device_train_batch_size bucketing with "
+             "length-budget batching (see sample_util.DynamicBatchConfig): "
+             "sample count per training batch varies so that "
+             "sample_count * max_input_length_in_batch stays under "
+             "--max_batch_audio_len, instead of staying at a fixed count. "
+             "This is what actually bounds peak memory against "
+             "outlier-length audio -- a fixed batch_size can still OOM "
+             "whenever several long-audio outliers land in the same "
+             "batch. Mutually exclusive with fixed-size bucketing; "
+             "--per_device_train_batch_size is ignored for the training "
+             "dataloader when this is set (eval is unaffected).")
+    parser.add_argument(
+        "--max_batch_audio_len", type=int, default=None,
+        help="Required when --dynamic_batching is set. Budget for "
+             "sample_count * max_input_values_len within one training "
+             "batch, in raw waveform samples (same units as "
+             "len(sample['input_values'])). Must be tuned per-GPU/model; "
+             "there's no way to derive it analytically. As a starting "
+             "point, try (typical --per_device_train_batch_size) * "
+             "(a representative max input length for your data).")
+    parser.add_argument(
+        "--max_dynamic_batch_size", type=int, default=None,
+        help="Optional hard cap on sample count per training batch under "
+             "--dynamic_batching, even if --max_batch_audio_len would "
+             "allow more. Omit for no cap.")
+    parser.add_argument(
+        "--max_sample_audio_len", type=int, default=None,
+        help="Drops any training/eval sample whose raw audio is longer "
+             "than this many waveform samples -- a hard safety net "
+             "against pathological outliers (e.g. corrupted or "
+             "mis-segmented audio) that no amount of batching can absorb "
+             "on their own. Applies regardless of --dynamic_batching. "
+             "Omit to disable.")
+
+    args = parser.parse_args()
+
+    # Fill in any hyperparameter left as None (i.e. not explicitly passed)
+    # from the chosen --gpu_profile and --finetune_profile. The two cover
+    # disjoint keys (hardware/batch settings vs. dataset/schedule settings),
+    # so the order between them doesn't matter; explicit CLI flags always
+    # win over both.
+    finetune_profile = _FINETUNE_PROFILES[args.finetune_profile]
+    for profile in (_GPU_PROFILES[args.gpu_profile], finetune_profile):
+        for key, value in profile.items():
+            if key in ("train_subdir", "train_shard_subdirs"):
+                continue
+            if getattr(args, key) is None:
+                setattr(args, key, value)
+    args.train_subdir = finetune_profile["train_subdir"]
+    # Only set for profiles whose shards are split across multiple
+    # subdirectories (e.g. "libri_speech_full_960hr"); None for the rest,
+    # meaning sample_util.make_dataset() reads 'shard-*.tar' directly under
+    # train_top_dir as before.
+    args.train_shard_subdirs = finetune_profile.get("train_shard_subdirs")
+
+    if args.gpu_memory_fraction > 0 and torch.cuda.is_available():
+        _gib = torch.cuda.get_device_properties(0).total_memory / 2 ** 30
+        _total = _gib * 1024
+        if _gib < _MEMORY_FRACTION_MIN_GIB:
+            # The launcher scripts ship a fraction sized for the 32 GB
+            # cards, where two runs share a GPU. Honouring it here would
+            # cap the one run this card can hold to a fraction of what it
+            # needs, so ignore it rather than making every caller
+            # special-case the hardware.
+            print(f"[mem] --gpu_memory_fraction "
+                  f"{args.gpu_memory_fraction:.3f} ignored: this card has "
+                  f"{_gib:.1f} GiB, below the {_MEMORY_FRACTION_MIN_GIB:.0f} "
+                  f"GiB needed to share a GPU. Running unconstrained.")
+        else:
+            torch.cuda.set_per_process_memory_fraction(
+                args.gpu_memory_fraction)
+            print(f"[mem] capped at {args.gpu_memory_fraction:.3f} of "
+                  f"{_total:.0f} MiB = "
+                  f"{_total * args.gpu_memory_fraction:.0f} MiB")
+
+    if args.dynamic_batching and args.max_batch_audio_len is None:
+        parser.error(
+            "--dynamic_batching requires --max_batch_audio_len (there's no "
+            "sane default -- it depends on your GPU memory and model).")
+
+    if args.alpha_switch_step > 0 and args.alpha_after_switch is None:
+        parser.error(
+            "--alpha_switch_step requires --alpha_after_switch (leaving it "
+            "implicit would make the run name -- and so the checkpoint "
+            "directory -- ambiguous).")
+    if args.alpha_after_switch is None:
+        args.alpha_after_switch = 0.0
+
+    if args.run_name is None:
+        args.run_name = _default_run_name(args)
+        print(f"[info] --run_name not given; using auto-generated name: "
+              f"{args.run_name}")
+
+    return args
+
+
+def main():
+    args = parse_args()
+
+    # Resolve data directories: an explicit --train_top_dir/--test_top_dir
+    # always wins; otherwise derive from --db_top_dir, using the
+    # --finetune_profile's default train_subdir.
+    train_top_dir = args.train_top_dir or os.path.join(
+        args.db_top_dir, args.train_subdir)
+    if args.test_top_dir:
+        eval_top_dirs = {None: args.test_top_dir}
+    else:
+        eval_top_dirs = {
+            name: os.path.join(args.db_top_dir, "librispeech/webdataset",
+                               name)
+            for name in (x.strip() for x in args.eval_splits.split(","))
+            if name}
+    if not eval_top_dirs:
+        raise ValueError("--eval_splits resolved to nothing")
+
+    processor = AutoProcessor.from_pretrained(args.model_name)
+
+    # Dynamic configuration based on vocab_size.
+    if args.vocab_size is not None:
+        spm_name = f"librispeech_unigram_{args.vocab_size}.model"
+        spm_model_path = os.path.join(args.resource_top_dir, spm_name)
+        # Inject the SPM wrapper into the existing processor structure.
+        processor.tokenizer = Wav2Vec2SPMTokenizer(spm_model_path)
+    else:
+        spm_model_path = None
+
+    # Initialize data collator. Built before the datasets below because
+    # --dynamic_batching needs it as the collate_fn baked into the training
+    # WebDataset pipeline itself (see DynamicBatchConfig).
+    data_collator = DataCollatorCTCWithPadding(
+        processor=processor, padding="longest")
+
+    # Dataset preparation. Batching strategy for the *training* stream only
+    # -- eval isn't performance/memory-sensitive the same way, so it's
+    # always left in raw shard order, consumed with the normal fixed
+    # per_device_eval_batch_size DataLoader path.
+    if args.dynamic_batching:
+        # Length-budget batching: sample count per training batch varies so
+        # that sample_count * max_input_length_in_batch stays under
+        # --max_batch_audio_len, instead of staying at a fixed count. This
+        # is what actually bounds peak memory against outlier-length audio
+        # (see MyCtcTrainer.get_train_dataloader). The dataset already
+        # yields fully collated batches, so --per_device_train_batch_size
+        # is not used for training here.
+        train_dataset = sample_util.make_dataset(
+            train_top_dir, True, spm_model_path,
+            dynamic_batch=sample_util.DynamicBatchConfig(
+                collate_fn=data_collator,
+                max_batch_length=args.max_batch_audio_len,
+                max_batch_size=args.max_dynamic_batch_size,
+                window_mult=args.length_bucket_window_mult,
+                seed=args.seed),
+            sub_shard_dirs=args.train_shard_subdirs,
+            max_sample_length=args.max_sample_audio_len)
+    else:
+        # Fixed-size length bucketing (see --length_bucket_window_mult):
+        # trades step-to-step wall-clock variance for lower average padding
+        # waste, without changing the batch_size itself.
+        train_dataset = sample_util.make_dataset(
+            train_top_dir, True, spm_model_path,
+            batch_size=args.per_device_train_batch_size,
+            length_bucket_window_mult=args.length_bucket_window_mult,
+            sub_shard_dirs=args.train_shard_subdirs,
+            max_sample_length=args.max_sample_audio_len,
+            seed=args.seed)
+    # A dict with one entry would make Trainer emit "eval_None_wer", so the
+    # single-split case is unwrapped back to a bare dataset.
+    eval_datasets = {
+        name: sample_util.make_dataset(
+            top_dir, True, spm_model_path,
+            max_sample_length=args.max_sample_audio_len)
+        for name, top_dir in eval_top_dirs.items()}
+    if len(eval_datasets) == 1:
+        eval_dataset = next(iter(eval_datasets.values()))
+    else:
+        eval_dataset = eval_datasets
+
+    actual_vocab_size = len(processor.tokenizer)
+
+    # Load model with dynamic vocab size.
+    model = AutoModelForCTC.from_pretrained(
+        args.model_name,
+        ctc_loss_reduction="mean",
+        pad_token_id=processor.tokenizer.pad_token_id,
+        vocab_size=actual_vocab_size,
+        ignore_mismatched_sizes=True,
+    )
+
+    output_dir = os.path.join(args.checkpoint_top_dir, args.run_name)
+
+    # transformers rejects lr_scheduler_kwargs for schedulers that take no
+    # extra arguments, so build it only for warmup_stable_decay and leave
+    # the linear default completely untouched. get_wsd_schedule splits the
+    # run into warmup / stable / decay; if the three do not sum to
+    # max_steps the leftover steps silently run at min_lr_ratio, so assert
+    # instead of discovering it in a loss curve.
+    _sched = args.lr_scheduler_type or "linear"
+    _sched_kwargs = {}
+    if _sched == "warmup_stable_decay":
+        assert args.num_stable_steps is not None, "--num_stable_steps"
+        assert args.num_decay_steps is not None, "--num_decay_steps"
+        _total = args.warmup_steps + args.num_stable_steps + args.num_decay_steps
+        assert _total == args.max_steps, (
+            f"warmup {args.warmup_steps} + stable {args.num_stable_steps} + "
+            f"decay {args.num_decay_steps} = {_total}, not max_steps "
+            f"{args.max_steps}")
+        _sched_kwargs = dict(num_stable_steps=args.num_stable_steps,
+                             num_decay_steps=args.num_decay_steps,
+                             decay_type=args.decay_type or "linear")
+        print(f"[lr] WSD: warmup {args.warmup_steps} -> stable "
+              f"{args.num_stable_steps} -> {_sched_kwargs['decay_type']} decay "
+              f"{args.num_decay_steps} (total {args.max_steps})")
+
+    _save_at = ([int(x) for x in args.save_at_steps.split(",") if x.strip()]
+                if args.save_at_steps else [])
+    if _save_at:
+        assert args.max_steps in _save_at, (
+            f"--save_at_steps {_save_at} has no checkpoint at --max_steps "
+            f"{args.max_steps}; the final checkpoint is the one the "
+            f"comparison uses.")
+        print(f"[ckpt] saving at {_save_at} (save_strategy=no)")
+
+    # Name the metric by the split it comes from when there is more than
+    # one; dev-other is the split that separates methods, so it is the one
+    # worth selecting on if anyone ever turns load_best_model_at_end on.
+    if isinstance(eval_dataset, dict):
+        _best_metric = ("dev-other_wer" if "dev-other" in eval_dataset
+                        else f"{next(iter(eval_dataset))}_wer")
+    else:
+        _best_metric = "wer"
+
+    # Record the full invocation next to the checkpoints. HF's
+    # training_args.bin only carries TrainingArguments, so none of this
+    # script's own knobs -- alpha, beta, alpha_mode, fas_eps, blank_gate,
+    # smoothing_space -- survive in it, and the run-name suffix has been
+    # the only evidence of which method produced a checkpoint. That is not
+    # enough: on 2026-09-21 a MOS run overwrote the AWS checkpoint at
+    # alpha=0.05 because both modes fell through to the same "_hmatch"
+    # suffix, and nothing in either directory could have told them apart
+    # afterwards. wav2vec2_rnnt.py already stores vars(args) inside
+    # rnnt.pt; this is the CTC equivalent. Written before training starts
+    # so a run that dies still leaves its identity behind.
+    os.makedirs(output_dir, exist_ok=True)
+    with open(os.path.join(output_dir, "run_args.json"), "w") as _fh:
+        json.dump({"argv": sys.argv, "args": vars(args),
+                   "started_utc": datetime.datetime.now(
+                       datetime.timezone.utc).isoformat(timespec="seconds"),
+                   "host": socket.gethostname()},
+                  _fh, indent=2, sort_keys=True, default=str)
+
+    training_args = TrainingArguments(
+        output_dir=output_dir,
+        seed=args.seed,
+        per_device_train_batch_size=args.per_device_train_batch_size,
+        learning_rate=args.learning_rate,
+        gradient_accumulation_steps=args.gradient_accumulation_steps,
+        warmup_steps=args.warmup_steps,
+        max_steps=args.max_steps,
+        lr_scheduler_type=_sched,
+        lr_scheduler_kwargs=_sched_kwargs,
+        gradient_checkpointing=args.gradient_checkpointing,
+        bf16=args.bf16,
+        eval_strategy="steps",
+        per_device_eval_batch_size=args.per_device_eval_batch_size,
+        eval_accumulation_steps=args.eval_accumulation_steps,
+        save_strategy=("no" if _save_at else "steps"),
+        save_steps=args.save_steps,
+        eval_steps=args.eval_steps,
+        # The training stream is a shuffled WebDataset pipeline with no
+        # length, so Trainer's resume path cannot seek into it -- it would
+        # replay 1500 steps of batches just to discard them. Both branches
+        # off a trunk skip identically, so the comparison between them is
+        # unaffected.
+        ignore_data_skip=bool(args.resume_from_checkpoint),
+        logging_steps=args.logging_steps,
+        load_best_model_at_end=args.load_best_model_at_end,
+        # With a dict of eval datasets Trainer prefixes metrics per key, so
+        # the bare "eval_wer" this used to name does not exist and Trainer
+        # raises KeyError at the FIRST evaluation -- load_best_model_at_end
+        # being False does not spare it, the check runs regardless.
+        metric_for_best_model=_best_metric,
+        greater_is_better=False,
+        push_to_hub=False,
+        dataloader_num_workers=args.dataloader_num_workers,
+        dataloader_persistent_workers=(
+            args.dataloader_persistent_workers
+            if args.dataloader_num_workers > 0 else False),
+    )
+
+    # Initialize trainer and start training.
+    trainer = MyCtcTrainer(
+        model=model,
+        args=training_args,
+        train_dataset=train_dataset,
+        eval_dataset=eval_dataset,
+        processing_class=processor,
+        data_collator=data_collator,
+        compute_metrics=make_compute_metrics(processor),
+        vocab_size=args.vocab_size,
+        alpha=args.alpha,
+        beta=args.beta,
+        peak_preserving=args.peak_preserving,
+        gamma=args.gamma,
+        peak_capping=args.peak_capping,
+        smoothing_space=args.smoothing_space,
+        alpha_mode=args.alpha_mode,
+        entropy_match_alpha_max=args.entropy_match_alpha_max,
+        entropy_match_kappa=args.entropy_match_kappa,
+        alpha_switch_step=args.alpha_switch_step,
+        alpha_after_switch=args.alpha_after_switch,
+        fas_eps=args.fas_eps,
+        asap_eps=args.asap_eps,
+        blank_gate=args.blank_gate,
+        dynamic_batching=args.dynamic_batching
+    )
+
+    if args.stop_at_step > 0:
+        trainer.add_callback(StopAtStepCallback(args.stop_at_step))
+    if _save_at:
+        trainer.add_callback(SaveAtStepsCallback(_save_at))
+
+    trainer.train(resume_from_checkpoint=args.resume_from_checkpoint)
+
+
+if __name__ == "__main__":
+    main()
