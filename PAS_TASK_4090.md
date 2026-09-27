@@ -189,7 +189,7 @@ baseline    /mnt/synology_nas_00/chanwcom/models/baseline_{ctc,rnnt}_libri100hr_
 
 - `{A}` 는 소수점을 `p` 로: `0.00125 -> 0p00125`, `0.32 -> 0p32`
 - **`/tmp` 금지.** 처음부터 NAS 에 쓴다
-- `run_args.json` 은 스크립트가 자동으로 남긴다
+- `run_args.json` 은 스크립트가 훈련 시작 전에 자동으로 남긴다 (CTC·RNN-T 양쪽)
 - 이름 형식은 **한 가지만**
 
 

@@ -34,9 +34,11 @@ from __future__ import (absolute_import, division, print_function,
                         unicode_literals)
 
 import argparse
+import datetime
 import json
 import math
 import os
+import socket
 import sys
 import time
 
@@ -441,6 +443,22 @@ def _greedy_decode_inner(model, processor, enc, enc_lens, max_symbols):
 def main():
     args = parse_args()
     torch.manual_seed(args.seed)
+
+    # vars(args) also goes inside rnnt.pt, but only once training finishes,
+    # and reading it there means loading a multi-gigabyte checkpoint. A run
+    # that dies leaves nothing at all. This is the CTC script's
+    # run_args.json, written before training starts for the same reason it
+    # is written early there: a checkpoint directory has to say what
+    # produced it even when the run never completed.
+    if args.output_dir:
+        os.makedirs(args.output_dir, exist_ok=True)
+        with open(os.path.join(args.output_dir, "run_args.json"), "w") as _fh:
+            json.dump({"argv": sys.argv, "args": vars(args),
+                       "started_utc": datetime.datetime.now(
+                           datetime.timezone.utc).isoformat(
+                               timespec="seconds"),
+                       "host": socket.gethostname()},
+                      _fh, indent=2, sort_keys=True, default=str)
     prof = __import__("wav2vec2_finetuning_sets")._FINETUNE_PROFILES[
         args.finetune_profile]
     max_steps = args.max_steps or prof["max_steps"]

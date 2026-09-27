@@ -394,8 +394,10 @@ baseline × 2 손실 × 5 seed = 10 런
 `{A}` 는 소수점을 `p` 로: `0.00125 → 0p00125`, `0.32 → 0p32`.
 예: `pas_h_rnnt_libri100hr_alpha_0p01_s3`
 
-baseline 은 α 를 이름에 넣지 않는다. `run_args.json` 을 같은 디렉터리에 남긴다
-(스크립트가 자동으로 한다).
+baseline 은 α 를 이름에 넣지 않는다. `run_args.json` 을 같은 디렉터리에 남긴다.
+**CTC·RNN-T 양쪽 다 스크립트가 훈련 시작 전에 자동으로 쓴다.** RNN-T 는
+원래 `vars(args)` 를 `rnnt.pt` 안에만 넣었고 그것도 훈련이 끝나야 생겼다 —
+죽은 런은 아무 기록도 안 남았다. 이번에 CTC 와 같은 형식으로 추가했다.
 
 인하대는 NAS 를 못 쓰므로 `/mnt/data/home/chanwcom/models/` 아래 같은 규칙,
 이름은 `ls_{ctc,rnnt}_libri100hr_alpha_{A}_s{SEED}`.

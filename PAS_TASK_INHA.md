@@ -157,7 +157,7 @@ baseline    /mnt/data/home/chanwcom/models/baseline_{ctc,rnnt}_libri100hr_s{SEED
 
 - `{A}` 는 소수점을 `p` 로: `0.00125 -> 0p00125`, `0.32 -> 0p32`
 - **`/tmp` 금지.** 처음부터 영구 저장소에 쓸 것
-- `run_args.json` 은 스크립트가 자동으로 남깁니다
+- `run_args.json` 은 스크립트가 훈련 시작 전에 자동으로 남깁니다 (CTC·RNN-T 양쪽)
 - 이름 형식은 한 가지만
 
 
