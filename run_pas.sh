@@ -55,6 +55,23 @@ else
     FRACTION=""                             # one run, whole card
 fi
 
+# Refuse to start on a broken environment rather than record it and die.
+# On 2026-09-28 the 4090 launched three runs whose conda activate had not
+# taken: CONDA_DEFAULT_ENV was set but PATH's python was not the env's, so
+# all three died on `import torch` / `import evaluate` seconds in and left
+# three cards idle. The launch header showed it -- its `python :` line came
+# out blank -- but only to someone reading the log afterwards. This turns
+# that into a refusal. Suggested by the Inha session, which lost two cards
+# for six hours to the same class of failure (set_config.sh not sourced).
+: "${CWK_HOME:?set_config.sh did not export CWK_HOME -- refusing to start}"
+if ! python -c "import torch, evaluate" 2>/dev/null; then
+    echo "FATAL: python in PATH cannot import torch/evaluate." >&2
+    echo "       which python = $(command -v python)" >&2
+    echo "       CONDA_DEFAULT_ENV = ${CONDA_DEFAULT_ENV:-unset}" >&2
+    echo "       conda activate did not take. Refusing to start." >&2
+    exit 1
+fi
+
 SCHED="--max_steps 15000 --warmup_steps 1000 --num_stable_steps 11000 --num_decay_steps 3000"
 BATCH="--dynamic_batching --max_batch_audio_len 1600000 --max_sample_audio_len 480000"
 COMMON="--model_name facebook/wav2vec2-large-lv60 --fas_eps 1e-10 --vocab_size 32 \

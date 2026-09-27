@@ -82,6 +82,32 @@ AWS 는 `wav2vec2-base` 라 large 기반 이번 실험과 같은 표에 못 놓�
 LS · PAS · baseline 이 **자기들끼리** 같은 조건이면 됩니다.
 
 
+
+### 환경 검사 — 기록이 아니라 **거부**
+
+훈련을 걸기 전에 환경을 확인하고, 틀리면 **시작하지 않고 죽는다.**
+
+```bash
+source set_config.sh
+: "${CWK_HOME:?set_config.sh did not export CWK_HOME -- refusing to start}"
+if ! python -c "import torch, evaluate" 2>/dev/null; then
+    echo "FATAL: python in PATH cannot import torch/evaluate." >&2
+    echo "       which python = $(command -v python)" >&2
+    echo "       CONDA_DEFAULT_ENV = ${CONDA_DEFAULT_ENV:-unset}" >&2
+    exit 1
+fi
+```
+
+2026-09-28 에 4090 이 conda 활성화가 안 된 채로 3런을 걸어 전부
+`ModuleNotFoundError` 로 즉사했고 카드 3장이 놀았다. `CONDA_DEFAULT_ENV` 는
+설정돼 있는데 `PATH` 의 `python` 이 env 것이 아닌 상태였다 — `conda.sh` 를
+source 하지 않고 `conda activate` 만 부르면 이렇게 된다. 로그 헤더의
+`python :` 줄이 **비어 있는 것**이 그 지문이다.
+
+인하대도 같은 부류로 `set_config.sh` 미source 때문에 6셀이 6초 만에 죽고
+카드 두 장이 6시간 놀았다. 헤더로 사후에 아는 것보다 **애초에 안 도는 것**이
+낫다.
+
 ### ⚠ `--gpu_memory_fraction` — **24GB 카드에는 넘기지 않는다**
 
 | 카드 | 동시 | 플래그 |
