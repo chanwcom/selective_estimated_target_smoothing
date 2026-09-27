@@ -20,6 +20,7 @@ MODELS=$TOP/models
 LOGS=$TOP/logs
 RESULTS=$TOP/results/RESULT_PAS.md
 REPO=/mnt/synology_nas_00/chanwcom/local_repository/selective_estimated_target_smoothing
+CWK=/mnt/synology_nas_00/chanwcom/local_repository/cognitive_workflow_kit
 
 if [ "$METHOD" = "baseline" ]; then
     NAME=baseline_${LOSS}_libri100hr_s${SEED}
@@ -49,7 +50,44 @@ COMMON="--model_name facebook/wav2vec2-large-lv60 --fas_eps 1e-10 --vocab_size 3
  --seed $SEED --finetune_profile libri_speech_clean_100hr_wsd $SCHED \
  --learning_rate 5e-5 $BATCH --dataloader_num_workers 4 --gpu_memory_fraction 0.46"
 
-echo "=== $NAME on GPU $GPU ===" | tee "$LOG"
+# The full launch state goes at the head of the log, not just the run
+# name. run_args.json records what the training script parsed, which is
+# not the same thing: it cannot show which git revision produced it, which
+# card it ran on, or that --dynamic_batching was passed rather than
+# defaulted. Reading a finished log should not require finding the script
+# that launched it.
+{
+  echo "==================== LAUNCH ===================="
+  echo "run             : $NAME"
+  echo "method / loss   : $PRETTY / $LOSS"
+  echo "alpha / seed    : $ALPHA / $SEED"
+  echo "finetune set    : LibriSpeech train-clean-100 (100h)"
+  echo "started         : $(date -Is)"
+  echo "host / gpu      : $(hostname) / CUDA_VISIBLE_DEVICES=$GPU"
+  echo "gpu model       : $(nvidia-smi -i "$GPU" --query-gpu=name,memory.total --format=csv,noheader 2>/dev/null)"
+  echo "conda env       : ${CONDA_DEFAULT_ENV:-?}"
+  echo "python          : $(python -c 'import sys,torch;print(sys.version.split()[0], "torch", torch.__version__)' 2>/dev/null)"
+  echo "repo            : $(git -C "$REPO" rev-parse --short HEAD 2>/dev/null) $(git -C "$REPO" describe --always --dirty 2>/dev/null)"
+  echo "cwk             : $(git -C "$CWK" rev-parse --short HEAD 2>/dev/null) $(git -C "$CWK" describe --always --dirty 2>/dev/null)"
+  echo "checkpoint      : $CKPT"
+  echo "results file    : $RESULTS"
+  echo "schedule        : $SCHED"
+  echo "batching        : $BATCH"
+  echo "common          : $COMMON"
+  echo "method args     : $MODE_ARGS"
+  if [ "$LOSS" = "ctc" ]; then
+    echo "loss-specific   : --smoothing_space label --per_device_eval_batch_size 4"
+    echo "script          : wav2vec2_finetuning_pas.py"
+    echo "eval script     : wav2vec2_inference.py (batch 8, no length filter)"
+  else
+    echo "loss-specific   : --max_label_len 450 --eval_batch_size 4 --grad_accum 2"
+    echo "script          : wav2vec2_rnnt.py"
+    echo "eval script     : rnnt_decode_test.py --device cuda (batch 8, no length filter)"
+  fi
+  echo "launcher argv   : $0 $*"
+  echo "PYTORCH_CUDA_ALLOC_CONF=$PYTORCH_CUDA_ALLOC_CONF"
+  echo "==============================================="
+} | tee "$LOG"
 
 # ---------------------------------------------------------------- train
 if [ "$LOSS" = "ctc" ]; then

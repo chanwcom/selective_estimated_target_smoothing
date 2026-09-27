@@ -192,6 +192,39 @@ baseline    /mnt/synology_nas_00/chanwcom/models/baseline_{ctc,rnnt}_libri100hr_
 - `run_args.json` 은 스크립트가 자동으로 남긴다
 - 이름 형식은 **한 가지만**
 
+
+### 로그 머리에 **론치 파라미터 전체**를 기록한다
+
+**모든 머신 공통 의무다.** 나중에 어떤 런이 무슨 설정으로 돌았는지를
+로그 하나만 열어서 알 수 있어야 한다.
+
+`run_args.json` 만으로는 부족하다. 그건 학습 스크립트가 **파싱한 것**만
+담으며, 어느 git 리비전이었는지, 어느 카드였는지, `--dynamic_batching` 을
+실제로 넘겼는지 기본값이었는지를 보여주지 못한다.
+
+훈련 시작 전에 로그 맨 앞에 다음을 남긴다.
+
+| 항목 | 예 |
+|---|---|
+| 런 이름 | `pas_h_rnnt_libri100hr_alpha_0p01_s3` |
+| method / loss | `PAS-H / rnnt` |
+| alpha / seed | `0.01 / 3` |
+| 파인튜닝 셋 | `LibriSpeech train-clean-100 (100h)` |
+| 시작 시각 | `date -Is` |
+| host / GPU | 호스트명, `CUDA_VISIBLE_DEVICES`, 카드 모델·메모리 |
+| conda env / python / torch | |
+| **git 리비전** | `selective_estimated_target_smoothing` 와 `cognitive_workflow_kit` **둘 다**, `--dirty` 포함 |
+| 체크포인트 경로 / 결과 파일 경로 | |
+| **전달한 인자 전문** | 스케줄·배칭·공통·방법별·손실별 전부 |
+| 사용한 학습 스크립트 / 평가 스크립트 | |
+| `launcher argv` | 런처를 부른 명령 그대로 |
+| `PYTORCH_CUDA_ALLOC_CONF` | |
+
+conda 활성화 **뒤에** 기록해야 env 이름과 torch 버전이 찍힌다.
+
+5090 쪽 구현은 `run_pas.sh` 의 `LAUNCH` 블록이다. 그대로 가져다 쓰거나
+같은 항목을 남기면 된다.
+
 ---
 
 ## 평가 — 길이 필터를 걸지 말 것
