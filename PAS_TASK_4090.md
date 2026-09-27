@@ -184,6 +184,36 @@ baseline    /mnt/synology_nas_00/chanwcom/models/baseline_{ctc,rnnt}_libri100hr_
   전체 test = 2620/2939. 이 수가 아니면 필터가 걸린 것이다
 - **훈련 직후 같은 잡(또는 같은 큐)에서** 평가까지 끝낼 것
 
+
+### RNN-T 평가는 스크립트가 다르다
+
+⚠ **`wav2vec2_inference.py` 는 CTC 전용이다.** HF `pipeline()` 으로 CTC
+체크포인트를 디코드하며 RNN-T 체크포인트는 읽지 못한다. RNN-T 는
+**`rnnt_decode_test.py`** 를 쓴다 — 길이 필터가 없고 `n` 을 기록한다.
+
+```bash
+# CTC
+python wav2vec2_inference.py --checkpoint_dir <ckpt> --vocab_size 32 \
+    --test_split dev-clean --batch_size 8
+
+# RNN-T
+python rnnt_decode_test.py --device cuda --batch_size 8 \
+    --splits dev-clean,dev-other,test-clean,test-other \
+    --ckpt_glob '<모델디렉터리>/<이름>/rnnt.pt' --out <이름>_decode.jsonl
+```
+
+**`rnnt_decode_test.py` 를 이번에 두 군데 고쳤으니 반드시 pull 할 것.**
+
+1. 모델 재구성 때 `encoder_name` 을 안 넘겨 **항상 `wav2vec2-base` 로
+   만들었다.** large 체크포인트는 shape 불일치로 못 읽는다
+2. **CPU 전용이었다.** `--device` 를 냈다 (기본 `cpu`, 기존 동작 불변).
+   ⚠ **CPU 와 GPU 디코드는 같은 체크포인트에서 0.74% 상대 차이가 측정됐다**
+   — 보고하려는 효과와 같은 자릿수다. **한 표의 모든 셀이 같은 `--device`
+   를 써야 한다. 이번 실험은 전부 `cuda` 로 통일한다**
+
+**RNN-T 훈련 루프 내장 eval 도 길이 필터가 걸린다** (`wav2vec2_rnnt.py:486-490`).
+게다가 dev 만 돈다. 결과 파일에 넣지 말 것.
+
 ---
 
 ## 결과

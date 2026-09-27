@@ -21,7 +21,8 @@
 | eval 배치 | 훈련과 동일 | **훈련과 따로, 4** (§4.2) | RNN-T eval 이 `batch_size=32` 하드코딩이라 4.07 GiB 를 한 번에 요구 |
 | GPU 상한 | 머신당 2장 | **머신당 3장** | 사용자 지시 |
 | 구현 상태 | "둘 다 새로 짜야 한다" | **완료, 테스트 7/7** (§3) | |
-| 평가 필터 | "사고가 났다" (과거) | **현재도 코드에 있다** (§7.0) | 고친 게 아니라 우회하는 것 |
+| 평가 필터 | "사고가 났다" (과거) | **현재도 코드에 있다. CTC·RNN-T 양쪽** (§7.0) | 고친 게 아니라 우회하는 것 |
+| RNN-T 최종 평가 | `wav2vec2_inference.py` | **`rnnt_decode_test.py`** (§7) | 전자는 CTC 전용이라 RNN-T 를 못 읽는다 |
 | 실행 인자 | 없음 | **§4.3 신설** | CTC 와 RNN-T 의 인자 이름이 다르다 |
 
 ---
@@ -404,8 +405,37 @@ baseline 은 α 를 이름에 넣지 않는다. `run_args.json` 을 같은 디�
 
 | 시점 | 대상 | 방법 | 길이 필터 |
 |---|---|---|---|
-| 2,000 step 마다 | dev | 훈련 루프 내장 | 걸림 (무방) |
-| 훈련 종료 후 | dev-clean, dev-other, test-clean, test-other **전체** | `wav2vec2_inference.py` **배치 추론** | **절대 금지** |
+| 중간 | dev | 훈련 루프 내장 | **걸림 — 결과에 쓰지 않는다** |
+| 훈련 종료 후 (CTC) | dev-clean, dev-other, test-clean, test-other **전체** | `wav2vec2_inference.py` | 없음 |
+| 훈련 종료 후 (RNN-T) | 위와 동일 | **`rnnt_decode_test.py`** | 없음 |
+
+⚠ **`wav2vec2_inference.py` 는 CTC 전용이다.** HF `pipeline()` 으로 CTC
+체크포인트를 디코드하며 RNN-T 체크포인트는 읽지 못한다. RNN-T 는
+`rnnt_decode_test.py` 가 대응물이고, `greedy_decode` 를 학습 스크립트에서
+그대로 가져다 쓴다.
+
+```bash
+# CTC
+python wav2vec2_inference.py --checkpoint_dir <ckpt> --vocab_size 32 \
+    --test_split dev-clean --batch_size 8
+
+# RNN-T
+python rnnt_decode_test.py --device cuda --batch_size 8 \
+    --splits dev-clean,dev-other,test-clean,test-other \
+    --ckpt_glob '/mnt/synology_nas_00/chanwcom/models/<name>/rnnt.pt' \
+    --out <name>_decode.jsonl
+```
+
+**`rnnt_decode_test.py` 를 이번에 두 군데 고쳤다.**
+
+1. 모델을 재구성할 때 `encoder_name` 을 넘기지 않아 **항상
+   `wav2vec2-base` 로 만들었다.** large 체크포인트는 shape 불일치로 못
+   읽는다. 이제 체크포인트의 `args["model_name"]` 에서 읽는다
+2. **CPU 전용이었다.** `--device` 를 냈다 (기본 `cpu` 로 기존 동작 불변).
+   large 인코더로 90런 x 4split 을 CPU 로 도는 것은 현실적이지 않다.
+   ⚠ **CPU 와 GPU 디코드는 같은 체크포인트에서 0.74% 상대 차이가 측정됐다**
+   — 보고하려는 효과(-2~-4%)와 같은 자릿수다. **한 표 안의 모든 셀은 같은
+   `--device` 를 써야 한다.** PAS 는 전부 `cuda` 로 통일한다
 
 ### 7.0 ⚠ 최종 평가에서 길이 필터를 걸지 않는다
 
@@ -426,10 +456,15 @@ eval_datasets = {
 
 **규칙**
 
-- 최종 평가는 **`wav2vec2_inference.py` 로만** 한다. 이 스크립트에는 길이
-  필터가 없다 (확인함 — `filtered_ids` 는 토큰 디코딩용)
+- 최종 평가는 **CTC 는 `wav2vec2_inference.py`, RNN-T 는
+  `rnnt_decode_test.py` 로만** 한다. 두 스크립트 다 길이 필터가 없다
+  (확인함 — `wav2vec2_inference.py` 의 `filtered_ids` 는 토큰 디코딩용이고,
+  `rnnt_decode_test.py` 는 `make_dataset` 에 `max_sample_length` 를 넘기지
+  않는다)
 - **훈련 루프의 중간 eval 값은 진행 확인용이며 결과 파일에 넣지 않는다.**
-  그 값은 필터가 걸린 값이다
+  그 값은 필터가 걸린 값이다. **RNN-T 도 마찬가지다** —
+  `wav2vec2_rnnt.py:486-490` 의 `dev_sets` 도 `max_sample_length` 를 받는다.
+  RNN-T 는 dev 만 돌기도 해서 test 가 아예 없다
 - 결과 파일에 **평가 발화 수 `n` 을 반드시 함께 적는다.**
   전체 dev = 2703 / 2864, 전체 test = 2620 / 2939. 이 수가 아니면 필터가
   걸린 것이다
