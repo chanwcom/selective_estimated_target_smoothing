@@ -263,7 +263,8 @@ eval 배치 크기는 WER 에 영향이 없다 — 한 번에 몇 발화를 묶�
 | 배치 | `--per_device_train_batch_size` | `--batch_size` |
 | 누적 | `--gradient_accumulation_steps` | `--grad_accum` |
 | 스무딩 공간 | `--smoothing_space label` | (없음 — 격자뿐) |
-| eval 크기 | `--per_device_eval_batch_size` | `--eval_examples` |
+| eval 배치 | `--per_device_eval_batch_size` | `--eval_batch_size` (이번에 신설) |
+| eval 발화 수 | (없음 — dev 전체를 돈다) | `--eval_examples` |
 
 **RNN-T 전용 스크립트를 새로 만들지 않는다.** PAS 는 기존
 `wav2vec2_rnnt.py` 에 직접 들어가 있다 (`--alpha_mode pas_h|pas_u`,
