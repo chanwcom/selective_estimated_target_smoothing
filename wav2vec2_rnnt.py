@@ -466,6 +466,23 @@ def main():
         "warmup_steps"]
 
     if args.gpu_memory_fraction and args.device == "cuda":
+        # Same guard the CTC script has (_MEMORY_FRACTION_MIN_GIB). The
+        # fraction exists to put two runs on one card, which only the 32 GB
+        # class can do, or to rehearse a smaller card on a bigger one --
+        # neither is meaningful on a card that is already small. Applying
+        # it there caps the one run the card has: 0.46 of a 24 GB 4090 is
+        # 10.6 GiB, and a run that needs 14.4 dies in the first backward
+        # with 12 GiB still free. The CTC script bypassed this silently and
+        # this one did not, which made the same command line safe in one
+        # loss and fatal in the other.
+        _gib = torch.cuda.get_device_properties(0).total_memory / 2 ** 30
+        if _gib < 30.0:
+            print(f"[mem] ignoring --gpu_memory_fraction "
+                  f"{args.gpu_memory_fraction:.3f}: this card reports "
+                  f"{_gib:.1f} GiB, below the 30 GiB that can hold two "
+                  f"runs. Using the whole card.", flush=True)
+            args.gpu_memory_fraction = 0.0
+    if args.gpu_memory_fraction and args.device == "cuda":
         torch.cuda.set_per_process_memory_fraction(args.gpu_memory_fraction)
         print(f"[mem] capped at {args.gpu_memory_fraction:.3f} of the card "
               f"({args.gpu_memory_fraction * torch.cuda.get_device_properties(0).total_memory / 2**30:.1f} GiB)",

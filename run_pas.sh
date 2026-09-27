@@ -44,11 +44,22 @@ source set_config.sh
 export CUDA_VISIBLE_DEVICES=$GPU
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True,garbage_collection_threshold:0.7
 
+# --gpu_memory_fraction only belongs on a card big enough to hold two runs.
+# On a 24 GB card it caps the single run it has: 0.46 of 23 GiB is 10.6,
+# and these runs need 14.4. Decided from the card, not from the machine, so
+# the same script is correct on a 5090 and on a 4090.
+_GIB=$(nvidia-smi -i "$GPU" --query-gpu=memory.total --format=csv,noheader,nounits 2>/dev/null)
+if [ "${_GIB:-0}" -ge 30000 ]; then
+    FRACTION="--gpu_memory_fraction 0.46"   # two runs share this card
+else
+    FRACTION=""                             # one run, whole card
+fi
+
 SCHED="--max_steps 15000 --warmup_steps 1000 --num_stable_steps 11000 --num_decay_steps 3000"
 BATCH="--dynamic_batching --max_batch_audio_len 1600000 --max_sample_audio_len 480000"
 COMMON="--model_name facebook/wav2vec2-large-lv60 --fas_eps 1e-10 --vocab_size 32 \
  --seed $SEED --finetune_profile libri_speech_clean_100hr_wsd $SCHED \
- --learning_rate 5e-5 $BATCH --dataloader_num_workers 4 --gpu_memory_fraction 0.46"
+ --learning_rate 5e-5 $BATCH --dataloader_num_workers 4 $FRACTION"
 
 # The full launch state goes at the head of the log, not just the run
 # name. run_args.json records what the training script parsed, which is
@@ -73,6 +84,7 @@ COMMON="--model_name facebook/wav2vec2-large-lv60 --fas_eps 1e-10 --vocab_size 3
   echo "results file    : $RESULTS"
   echo "schedule        : $SCHED"
   echo "batching        : $BATCH"
+  echo "memory fraction : ${FRACTION:-(none -- whole card)}"
   echo "common          : $COMMON"
   echo "method args     : $MODE_ARGS"
   if [ "$LOSS" = "ctc" ]; then
