@@ -142,8 +142,16 @@ DEC=$LOGS/${NAME}_decode.jsonl
 : > "$DEC"
 
 if [ "$LOSS" = "ctc" ]; then
+    # HuggingFace Trainer saves under checkpoint-NNN/ subdirectories.
+    # CKPT points to the parent; find the latest actual checkpoint.
+    CKPT_EVAL=$(ls -1d "$CKPT"/checkpoint-* 2>/dev/null | sort -V | tail -1)
+    if [ -z "$CKPT_EVAL" ]; then
+        echo "ERROR: no checkpoint-* dir found under $CKPT" | tee -a "$LOG"
+        exit 1
+    fi
+    echo "CTC eval checkpoint: $CKPT_EVAL" | tee -a "$LOG"
     for SPLIT in dev-clean dev-other test-clean test-other; do
-        python wav2vec2_inference.py --checkpoint_dir "$CKPT" \
+        python wav2vec2_inference.py --checkpoint_dir "$CKPT_EVAL" \
             --vocab_size 32 --test_split "$SPLIT" --batch_size 8 \
             2>&1 | tee -a "$LOG" | python3 -c "
 import ast, json, sys
